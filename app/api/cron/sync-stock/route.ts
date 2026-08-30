@@ -5,8 +5,9 @@ import { syncCompanyStock } from "@/lib/stock";
 // Safety-net restock detection for merchants who restock in the Whop
 // dashboard while nobody has the app open. Primary detection paths are the
 // product.*/plan.* webhooks and the lazy sync on page views; this cron runs
-// every 15 minutes (vercel.json) to cap staleness. Vercel sends
-// Authorization: Bearer CRON_SECRET.
+// every day at 14:00 UTC (vercel.json). Primary detection paths are the
+// product.*/plan.* webhooks and the lazy sync on page views; this cron is a
+// daily safety net for dormant tenants. Vercel sends Authorization: Bearer CRON_SECRET.
 export async function GET(request: NextRequest): Promise<Response> {
 	const secret = process.env.CRON_SECRET;
 	if (
