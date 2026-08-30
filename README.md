@@ -111,11 +111,26 @@ cp .env.development .env.local   # fill in real values
 npm run dev                      # wraps whop-proxy for real iframe auth
 ```
 
-Env vars: `WHOP_API_KEY`, `NEXT_PUBLIC_WHOP_APP_ID`, `WHOP_WEBHOOK_SECRET`,
-`SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `CRON_SECRET`.
+Env vars: `WHOP_API_KEY`, `WHOP_API_BASE` (sandbox:
+`https://sandbox-api.whop.com/api/v1`), `NEXT_PUBLIC_WHOP_APP_ID`,
+`WHOP_WEBHOOK_SECRET`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`,
+`CRON_SECRET`.
 
-In the Whop developer dashboard: set the app's experience path to
-`/experiences/[experienceId]`, dashboard path to `/dashboard/[companyId]`,
-create a webhook to `/api/webhooks` subscribed to `payment.succeeded` and
-`product.updated`, and request permissions for reading products, plans,
-payments, members and sending notifications.
+### Sandbox setup (sandbox.whop.com)
+
+App `app_WemaJ0mtcGCZWd` · company `biz_LOXBFWIxhgbn2M` · route `whop-ecom`
+
+Dashboard checklist (API key cannot set hosting/webhooks without scopes):
+
+1. Hosting: base URL `https://whop-ecom-beta.vercel.app`, dashboard path `/dashboard/[companyId]`
+2. Permissions: product, plan, payment, member read + notification:create
+3. Webhook → `/api/webhooks` (payment.succeeded, product.updated, product.created)
+4. Install: `https://sandbox.whop.com/apps/app_WemaJ0mtcGCZWd/install`
+5. Add Drops experience to products (`scripts/seed-products-manual.sh`)
+6. Supabase: run `supabase/migrations/0001_init.sql`, wire env on Vercel
+
+Health: `GET /api/health` · Demo: sell out capped product → waitlist → restock → buy → recovered revenue
+
+### Production
+
+Repeat on whop.com, set `WHOP_API_BASE=https://api.whop.com/api/v1`, submit to App Store.

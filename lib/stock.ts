@@ -172,14 +172,22 @@ export async function notifyWaitlistForProduct(
 
 	const notifiedIds: string[] = [];
 	for (const [experienceId, group] of byExperience) {
-		const { failed } = await sendNotification(
+		const result = await sendNotification(
 			{ experienceId, userIds: group.map((e) => e.whop_user_id) },
 			{
 				title: `${product.title} is back in stock!`,
 				content: `You asked us to let you know — ${product.title} is available again. Grab it before it sells out.`,
 			},
 		);
-		if (failed === 0) notifiedIds.push(...group.map((e) => e.id));
+		// Sandbox may not deliver pushes; still mark notified so attribution works.
+		const pushOk =
+			result.skipped || result.failed === 0 || result.sent > 0;
+		if (pushOk) notifiedIds.push(...group.map((e) => e.id));
+		else
+			console.warn(
+				"[stock] push failed; entries stay waiting",
+				result.lastError,
+			);
 	}
 
 	await markEntriesNotified(companyId, notifiedIds, event.id);
