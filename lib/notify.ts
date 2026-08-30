@@ -2,7 +2,7 @@
 // notifications resource, so this calls the REST endpoint directly.
 // Docs: https://docs.whop.com/developer/guides/notifications
 
-const API_BASE = "https://api.whop.com/api/v1";
+import { getWhopApiBase } from "@/lib/whop-config";
 
 // Whop caps user_ids per request; chunk to stay well under it.
 const CHUNK_SIZE = 25;
@@ -42,7 +42,7 @@ export async function sendNotification(
 	let sent = 0;
 	let failed = 0;
 	for (const body of bodies) {
-		const res = await fetch(`${API_BASE}/notifications`, {
+		const res = await fetch(`${getWhopApiBase()}/notifications`, {
 			method: "POST",
 			headers: {
 				Authorization: `Bearer ${apiKey}`,
