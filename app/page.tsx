@@ -3,11 +3,8 @@
 // (merchants). Hitting the bare deployment URL lands here.
 export default function Page() {
 	return (
-		<div className="flex min-h-screen items-center justify-center px-6 py-12">
-			<div className="mx-auto flex max-w-xl flex-col items-center gap-4 rounded-3xl border border-gray-a4 bg-gray-a2 p-10 text-center">
-				<span aria-hidden className="text-8">
-					📦
-				</span>
+		<main className="flex min-h-screen items-center justify-center px-6 py-12">
+			<div className="mx-auto flex max-w-xl flex-col gap-4 rounded-xl border border-gray-a4 bg-gray-a2 p-10 text-center">
 				<h1 className="text-8 font-bold text-gray-12">Restocked</h1>
 				<p className="text-4 text-gray-10">
 					Back-in-stock alerts &amp; drop waitlists for Whop businesses.
@@ -18,6 +15,6 @@ export default function Page() {
 					the merchant dashboard and give your customers a Drops tab.
 				</p>
 			</div>
-		</div>
+		</main>
 	);
 }

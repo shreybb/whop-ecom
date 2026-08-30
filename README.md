@@ -12,6 +12,39 @@ of brands, and back-in-stock alerts are the highest-converting notification
 in e-commerce (~60% open rates, 6.5–22% conversion — Omnisend). Whop has
 native stock caps but zero recapture tooling: this app fills a real gap.
 
+## Why back-in-stock (not reviews)
+
+The assignment asked us to pick one of two Shopify categories and ship it
+for Whop. On Shopify install volume, **product reviews** lead the pack
+(Judge.me alone reports ~401k installs); **back-in-stock / waitlist apps**
+(Notify Me!, Amp, Swym) are a close #2. We shipped **back-in-stock** because
+Whop already has the ingredients reviews do not solve here: native plan-level
+stock caps, a drop culture that sells out on purpose, and **zero recapture
+tooling** when inventory hits zero. Reviews attach to the business, not a
+sold-out SKU — they do not bring buyers back the second a restock lands.
+
+## Merchant gap notes (Blacktop Supply Co)
+
+Setting up the demo store on Whop vs a typical Shopify BIS stack surfaced
+gaps we built Restocked to cover:
+
+- **Stock lives on plans, not products** — capped inventory is per
+  size/color/price tier; merchants need plan-grain visibility, not a single
+  product badge.
+- **No back-in-stock flow** — a sold-out Whop product page is a dead end;
+  there is no Notify-me widget or waitlist capture on the native checkout
+  surface (Whop apps cannot inject into checkout).
+- **No product-page recapture widget** — Shopify BIS apps embed on the PDP;
+  on Whop the substitute is a **Drops experience tab** attached to products
+  (including a free/public product if the merchant wants non-members on the
+  waitlist).
+- **Reviews are business-level** — Judge.me-style review widgets do not
+  fire when a specific variant restocks; they do not replace demand capture
+  after a sellout.
+- **Distribution is manual** — onboarding must tell merchants to attach
+  the experience, cap stock on a plan, and treat the Drops tab as the
+  recapture surface.
+
 ## How it works
 
 ```
@@ -114,7 +147,8 @@ npm run dev                      # wraps whop-proxy for real iframe auth
 Env vars: `WHOP_API_KEY`, `WHOP_API_BASE` (sandbox:
 `https://sandbox-api.whop.com/api/v1`), `NEXT_PUBLIC_WHOP_APP_ID`,
 `WHOP_WEBHOOK_SECRET`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`,
-`CRON_SECRET`.
+`CRON_SECRET`. Optional email alerts: `RESEND_API_KEY`, `EMAIL_FROM` (needs
+`member:email:read` on the Whop app).
 
 ### Sandbox setup (sandbox.whop.com)
 

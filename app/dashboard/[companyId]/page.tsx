@@ -2,13 +2,15 @@ import { headers } from "next/headers";
 import { getCompany, upsertCompany } from "@/lib/db/companies";
 import {
 	getDashboardStats,
-	getPerProductStats,
+	getPerPlanStats,
 	getRecentActivity,
 } from "@/lib/db/stats";
 import { syncCompanyStock } from "@/lib/stock";
 import { getWhopSdk } from "@/lib/whop-sdk";
 import { AutoNotifyToggle, SyncButton } from "./controls";
-import { ProductTable } from "./product-table";
+import { NotifyTemplatesForm } from "./notify-templates";
+import { OnboardingChecklist } from "./onboarding-checklist";
+import { PlanTable } from "./plan-table";
 
 // Merchant view. Tenant isolation: the companyId path param is only
 // honored after checkAccess confirms the verified user is an admin of
@@ -35,22 +37,49 @@ export default async function DashboardPage({
 	}
 
 	await upsertCompany(companyId);
-	const [{ products }, stats, productStats, activity, company] =
-		await Promise.all([
-			syncCompanyStock(companyId, "sync"),
-			getDashboardStats(companyId),
-			getPerProductStats(companyId),
-			getRecentActivity(companyId),
-			getCompany(companyId),
-		]);
+	const [{ plans }, stats, planStats, activity, company] = await Promise.all([
+		syncCompanyStock(companyId, "sync"),
+		getDashboardStats(companyId),
+		getPerPlanStats(companyId),
+		getRecentActivity(companyId),
+		getCompany(companyId),
+	]);
 
 	const conversionRate =
 		stats.notified > 0
-			? Math.round((stats.converted / stats.notified) * 100)
+			? Math.round(stats.conversionRate * 100)
 			: null;
-	const productTitles = new Map(
-		products.map((p) => [p.product_id, p.title]),
+
+	const planTitles = new Map(
+		plans.map((p) => [
+			p.plan_id,
+			p.plan_title ? `${p.title} — ${p.plan_title}` : p.title,
+		]),
 	);
+	const productTitles = new Map(plans.map((p) => [p.product_id, p.title]));
+
+	const showOnboarding =
+		plans.length === 0 || (stats.waiting === 0 && stats.notified === 0);
+
+	const tableRows = plans.map((plan) => {
+		const s = planStats.get(plan.plan_id);
+		return {
+			planId: plan.plan_id,
+			productId: plan.product_id,
+			productTitle: plan.title,
+			planTitle: plan.plan_title,
+			imageUrl: plan.image_url,
+			price: plan.price,
+			currency: plan.currency,
+			inStock: plan.in_stock,
+			stockLeft: plan.stock_left,
+			unlimited: plan.unlimited,
+			waiting: s?.waiting ?? 0,
+			pendingNotify: s?.pendingNotify ?? 0,
+			notified: s?.notified ?? 0,
+			recoveredUsd: s?.recoveredUsd ?? 0,
+		};
+	});
 
 	return (
 		<main className="mx-auto flex max-w-5xl flex-col gap-6 p-6 sm:p-8">
@@ -58,7 +87,7 @@ export default async function DashboardPage({
 				<div>
 					<h1 className="text-7 font-bold">Restocked</h1>
 					<p className="text-3 text-gray-10">
-						Back-in-stock alerts &amp; drop waitlists
+						Back-in-stock alerts &amp; drop waitlists — per plan
 					</p>
 				</div>
 				<div className="flex items-center gap-3">
@@ -70,39 +99,38 @@ export default async function DashboardPage({
 				</div>
 			</header>
 
+			{showOnboarding && <OnboardingChecklist />}
+
 			<section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
 				<StatCard label="Waiting now" value={String(stats.waiting)} />
-				<StatCard label="Alerts sent" value={String(stats.notified)} />
+				<StatCard label="Alerts sent (7d)" value={String(stats.notified)} />
 				<StatCard
 					label="Recovered revenue"
 					value={`$${stats.recoveredUsd.toFixed(2)}`}
 					accent
 				/>
 				<StatCard
-					label="Alert conversion"
+					label="Alert conversion (7d)"
 					value={conversionRate == null ? "—" : `${conversionRate}%`}
 				/>
 			</section>
 
+			<NotifyTemplatesForm
+				companyId={companyId}
+				initialTitle={company?.notify_title ?? null}
+				initialBody={company?.notify_body ?? null}
+			/>
+
 			<section className="flex flex-col gap-2">
-				<h2 className="text-5 font-semibold">Products</h2>
-				<ProductTable
-					companyId={companyId}
-					rows={products.map((p) => {
-						const s = productStats.get(p.product_id);
-						return {
-							productId: p.product_id,
-							title: p.title,
-							price: p.price,
-							currency: p.currency,
-							inStock: p.in_stock,
-							stockLeft: p.stock_left,
-							waiting: s?.waiting ?? 0,
-							notified: s?.notified ?? 0,
-							recoveredUsd: s?.recoveredUsd ?? 0,
-						};
-					})}
-				/>
+				<h2 className="text-5 font-semibold">Plans</h2>
+				{tableRows.length === 0 ? (
+					<p className="rounded-xl border border-gray-a4 bg-gray-a2 p-6 text-center text-3 text-gray-10">
+						No plans found. Publish a product with at least one priced plan
+						on your whop and hit &ldquo;Sync stock&rdquo;.
+					</p>
+				) : (
+					<PlanTable companyId={companyId} rows={tableRows} />
+				)}
 			</section>
 
 			<section className="flex flex-col gap-2">
@@ -116,7 +144,7 @@ export default async function DashboardPage({
 					<ul className="flex flex-col divide-y divide-gray-a3 rounded-xl border border-gray-a4 bg-gray-a2">
 						{activity.map((item) => (
 							<li
-								key={`${item.kind}-${item.at}-${item.productId}`}
+								key={`${item.kind}-${item.at}-${item.productId}-${item.planId ?? ""}`}
 								className="flex items-center gap-3 px-4 py-3"
 							>
 								<span aria-hidden className="text-3">
@@ -126,7 +154,11 @@ export default async function DashboardPage({
 								</span>
 								<span className="min-w-0 flex-1 truncate text-3">
 									<span className="font-medium">
-										{productTitles.get(item.productId) ?? item.productId}
+										{item.planId
+											? (planTitles.get(item.planId) ??
+												productTitles.get(item.productId) ??
+												item.productId)
+											: (productTitles.get(item.productId) ?? item.productId)}
 									</span>{" "}
 									<span className="text-gray-10">— {item.detail}</span>
 								</span>

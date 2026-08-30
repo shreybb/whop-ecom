@@ -1,11 +1,19 @@
 import { getSupabase } from "@/lib/supabase";
 import type { CompanyRow } from "./types";
 
-export async function upsertCompany(companyId: string, title?: string | null) {
+export async function upsertCompany(
+	companyId: string,
+	title?: string | null,
+	options: { createdFromInstall?: boolean } = {},
+) {
 	const { data, error } = await getSupabase()
 		.from("companies")
 		.upsert(
-			{ id: companyId, ...(title ? { title } : {}) },
+			{
+				id: companyId,
+				...(title ? { title } : {}),
+				...(options.createdFromInstall ? { created_from_install: true } : {}),
+			},
 			{ onConflict: "id" },
 		)
 		.select()
@@ -28,6 +36,24 @@ export async function setAutoNotify(companyId: string, autoNotify: boolean) {
 	const { error } = await getSupabase()
 		.from("companies")
 		.update({ auto_notify: autoNotify })
+		.eq("id", companyId);
+	if (error) throw error;
+}
+
+export async function setNotifyTemplates(
+	companyId: string,
+	templates: { notifyTitle?: string | null; notifyBody?: string | null },
+) {
+	const { error } = await getSupabase()
+		.from("companies")
+		.update({
+			...(templates.notifyTitle !== undefined
+				? { notify_title: templates.notifyTitle }
+				: {}),
+			...(templates.notifyBody !== undefined
+				? { notify_body: templates.notifyBody }
+				: {}),
+		})
 		.eq("id", companyId);
 	if (error) throw error;
 }

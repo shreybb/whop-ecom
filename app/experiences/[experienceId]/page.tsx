@@ -1,12 +1,16 @@
 import { headers } from "next/headers";
 import { upsertCompany } from "@/lib/db/companies";
-import { getUserWaitingProductIds, getWaitingCounts } from "@/lib/db/waitlist";
+import type { TrackedPlan } from "@/lib/db/types";
+import {
+	getUserWaitlistStatusesByPlan,
+	getWaitingCountsByPlan,
+} from "@/lib/db/waitlist";
 import { syncCompanyStock } from "@/lib/stock";
 import { getWhopSdk } from "@/lib/whop-sdk";
-import { ProductCard } from "./product-card";
+import { ProductGroup } from "./product-group";
 
 // Customer view: every drop from this business with live stock state.
-// In-stock products link to checkout; sold-out products offer the waitlist.
+// In-stock plans link to checkout; sold-out plans offer the waitlist.
 export default async function ExperiencePage({
 	params,
 }: {
@@ -35,52 +39,44 @@ export default async function ExperiencePage({
 
 	// Lazy sync: page views keep stock state fresh (throttled to 1/min),
 	// which doubles as restock detection without waiting for webhooks.
-	const { products } = await syncCompanyStock(companyId, "sync");
-	const [waitingCounts, myWaitingIds] = await Promise.all([
-		getWaitingCounts(companyId),
-		getUserWaitingProductIds(companyId, userId),
+	const { plans } = await syncCompanyStock(companyId, "sync");
+	const [waitingCounts, waitlistStatuses] = await Promise.all([
+		getWaitingCountsByPlan(companyId),
+		getUserWaitlistStatusesByPlan(companyId, userId),
 	]);
 
-	const soldOutCount = products.filter((p) => !p.in_stock).length;
+	const soldOutPlanCount = plans.filter((p) => !p.in_stock).length;
+	const groups = groupPlansByProduct(plans);
 
 	return (
 		<main className="mx-auto flex max-w-3xl flex-col gap-6 p-6 sm:p-8">
-			<header className="flex flex-col gap-1">
+			<header className="flex flex-col gap-2">
 				<h1 className="text-7 font-bold">
 					{experience.company.title} Drops
 				</h1>
 				<p className="text-3 text-gray-10">
-					{soldOutCount > 0
-						? `${soldOutCount} drop${soldOutCount === 1 ? "" : "s"} sold out — join a waitlist and we'll ping you the second it's restocked.`
-						: "Everything is in stock right now. Join a waitlist any time something sells out."}
+					{soldOutPlanCount > 0
+						? `${soldOutPlanCount} item${soldOutPlanCount === 1 ? "" : "s"} sold out — join the waitlist and we'll ping you when it's back.`
+						: "Everything is in stock right now. When something sells out, come back here to get notified."}
 				</p>
 			</header>
 
-			{products.length === 0 ? (
+			{groups.length === 0 ? (
 				<div className="rounded-xl border border-gray-a4 bg-gray-a2 p-8 text-center">
 					<p className="text-4 font-medium">No products yet</p>
 					<p className="mt-1 text-3 text-gray-10">
-						When this business publishes products, they will show up here
-						with live stock tracking.
+						When this business publishes products, they will show up here.
 					</p>
 				</div>
 			) : (
-				<ul className="flex flex-col gap-3">
-					{products.map((product) => (
-						<ProductCard
-							key={product.product_id}
+				<ul className="flex flex-col gap-4">
+					{groups.map((group) => (
+						<ProductGroup
+							key={group.productId}
 							experienceId={experienceId}
-							product={{
-								productId: product.product_id,
-								title: product.title,
-								price: product.price,
-								currency: product.currency,
-								purchaseUrl: product.purchase_url,
-								inStock: product.in_stock,
-								stockLeft: product.stock_left,
-							}}
-							waitingCount={waitingCounts.get(product.product_id) ?? 0}
-							isWaiting={myWaitingIds.has(product.product_id)}
+							group={group}
+							waitingCounts={Object.fromEntries(waitingCounts)}
+							waitlistStatuses={Object.fromEntries(waitlistStatuses)}
 						/>
 					))}
 				</ul>
@@ -90,5 +86,39 @@ export default async function ExperiencePage({
 				Powered by Restocked — back-in-stock alerts for Whop
 			</footer>
 		</main>
+	);
+}
+
+type ProductGroupData = {
+	productId: string;
+	title: string;
+	imageUrl: string | null;
+	plans: TrackedPlan[];
+};
+
+function groupPlansByProduct(plans: TrackedPlan[]): ProductGroupData[] {
+	const byProduct = new Map<string, ProductGroupData>();
+	for (const plan of plans) {
+		let group = byProduct.get(plan.product_id);
+		if (!group) {
+			group = {
+				productId: plan.product_id,
+				title: plan.title,
+				imageUrl: plan.image_url,
+				plans: [],
+			};
+			byProduct.set(plan.product_id, group);
+		}
+		group.plans.push(plan);
+	}
+	for (const group of byProduct.values()) {
+		group.plans.sort((a, b) => {
+			const aTitle = a.plan_title ?? "";
+			const bTitle = b.plan_title ?? "";
+			return aTitle.localeCompare(bTitle);
+		});
+	}
+	return [...byProduct.values()].sort((a, b) =>
+		a.title.localeCompare(b.title),
 	);
 }

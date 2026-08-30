@@ -28,6 +28,18 @@ export async function GET() {
 		detail: `${getWhopApiBase()}${isWhopSandbox() ? " (sandbox)" : ""}`,
 	};
 
+	const resendKey = process.env.RESEND_API_KEY;
+	const emailFrom = process.env.EMAIL_FROM;
+	checks.email_notifications = {
+		ok: Boolean(resendKey && emailFrom),
+		detail:
+			resendKey && emailFrom
+				? "Resend configured (waitlist emails enabled)"
+				: resendKey || emailFrom
+					? "partial — set both RESEND_API_KEY and EMAIL_FROM"
+					: "optional — push-only until Resend is configured",
+	};
+
 	let supabaseOk = false;
 	try {
 		const { getSupabase } = await import("@/lib/supabase");
@@ -71,11 +83,12 @@ export async function GET() {
 		ready,
 		checks,
 		userActions: [
-			"Set app Hosting: base_url=https://whop-ecom-beta.vercel.app, dashboard_path=/dashboard/[companyId]",
-			"Approve app permissions: product, plan, payment, member read + notification:create",
-			"Create webhook → /api/webhooks (payment.succeeded, product.updated, product.created)",
-			"Install app on sandbox business + add Drops experience to a product",
-			"Provide Supabase URL + service role key (or access token for agent setup)",
+			"Production Whop app: set Hosting base_url=https://whop-ecom-beta.vercel.app, dashboard_path=/dashboard/[companyId]",
+			"Submit Restocked to the Whop App Store so other businesses can install",
+			"Production env: WHOP_API_BASE=https://api.whop.com/api/v1 + live API key/webhook secret",
+			"Webhook → /api/webhooks (payment.succeeded, product.updated, product.created)",
+			"Apply supabase/migrations on the production Supabase project",
+			"Demo loop: sell out a capped plan → waitlist → restock → buy → recovered revenue shows on dashboard",
 		],
 	});
 }
