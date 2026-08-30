@@ -42,3 +42,6 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 .observer.lock
+
+# supabase local
+supabase/.temp/
