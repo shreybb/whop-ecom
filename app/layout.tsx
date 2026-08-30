@@ -14,8 +14,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-	title: "Whop App",
-	description: "My Whop App",
+	title: "Restocked — back-in-stock alerts for Whop",
+	description:
+		"Back-in-stock alerts & drop waitlists for Whop businesses. Never lose the demand from a sellout.",
 };
 
 export default function RootLayout({

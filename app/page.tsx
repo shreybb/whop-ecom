@@ -1,30 +1,22 @@
-import { Button } from "@whop/react/components";
-import Link from "next/link";
-
+// Root page: a Whop app renders inside whop.com iframes at
+// /experiences/[experienceId] (customers) and /dashboard/[companyId]
+// (merchants). Hitting the bare deployment URL lands here.
 export default function Page() {
 	return (
-		<div className="py-12 px-4 sm:px-6 lg:px-8">
-			<div className="max-w-2xl mx-auto rounded-3xl bg-gray-a2 p-4 border border-gray-a4">
-				<div className="text-center mt-8 mb-12">
-					<h1 className="text-8 font-bold text-gray-12 mb-4">
-						Welcome to Your Whop App
-					</h1>
-					<p className="text-4 text-gray-10">
-						Learn how to build your application on our docs
-					</p>
-				</div>
-
-				<div className="justify-center flex w-full">
-					<Link
-						href="https://docs.whop.com/apps"
-						className="w-full"
-						target="_blank"
-					>
-						<Button variant="classic" className="w-full" size="4">
-							Developer Docs
-						</Button>
-					</Link>
-				</div>
+		<div className="flex min-h-screen items-center justify-center px-6 py-12">
+			<div className="mx-auto flex max-w-xl flex-col items-center gap-4 rounded-3xl border border-gray-a4 bg-gray-a2 p-10 text-center">
+				<span aria-hidden className="text-8">
+					📦
+				</span>
+				<h1 className="text-8 font-bold text-gray-12">Restocked</h1>
+				<p className="text-4 text-gray-10">
+					Back-in-stock alerts &amp; drop waitlists for Whop businesses.
+					Sell out by design, never lose the demand.
+				</p>
+				<p className="text-3 text-gray-9">
+					This app runs inside Whop — install it on your business to see
+					the merchant dashboard and give your customers a Drops tab.
+				</p>
 			</div>
 		</div>
 	);
