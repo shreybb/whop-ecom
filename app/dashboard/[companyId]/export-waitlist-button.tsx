@@ -6,13 +6,35 @@ import { exportWaitlistCsvAction } from "@/app/actions-merchant";
 
 export function ExportWaitlistButton({
 	companyId,
+	waitingCount,
 	compact = false,
 }: {
 	companyId: string;
+	waitingCount: number;
 	compact?: boolean;
 }) {
 	const [isPending, startTransition] = useTransition();
 	const [feedback, setFeedback] = useState<string | null>(null);
+
+	if (waitingCount === 0) {
+		return (
+			<div
+				className={
+					compact
+						? "text-2 text-gray-9"
+						: "flex flex-col items-start gap-1 lg:items-end"
+				}
+			>
+				<p className="text-2 text-gray-9">No one on the waitlist yet.</p>
+				{!compact ? (
+					<p className="text-1 text-gray-9 text-pretty lg:text-right">
+						When a plan sells out and fans join from your Drops tab, you can
+						export their emails here.
+					</p>
+				) : null}
+			</div>
+		);
+	}
 
 	return (
 		<div

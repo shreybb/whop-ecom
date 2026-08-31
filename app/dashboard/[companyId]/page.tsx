@@ -134,7 +134,7 @@ export default async function DashboardPage({
 				<div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
 					<h2 className="text-5 font-semibold shrink-0">Plans</h2>
 					<div className="flex min-w-0 flex-col gap-3 lg:items-end">
-						<ExportWaitlistButton companyId={companyId} />
+						<ExportWaitlistButton companyId={companyId} waitingCount={stats.waiting} />
 						{dropsLink ? (
 							<div className="flex min-w-0 flex-col gap-1 lg:items-end">
 								<CopyDropsLink
