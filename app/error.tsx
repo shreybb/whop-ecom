@@ -9,7 +9,8 @@ function isAuthError(error: Error): boolean {
 		msg.includes("unauthorized") ||
 		msg.includes("authentication") ||
 		msg.includes("x-whop-user-token") ||
-		msg.includes("not authenticated")
+		msg.includes("not authenticated") ||
+		msg.includes("whop user token")
 	);
 }
 

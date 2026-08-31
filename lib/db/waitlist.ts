@@ -154,13 +154,14 @@ export async function countSubscribedForPlan(companyId: string, planId: string) 
 export async function getWaitingCountsByPlan(companyId: string) {
 	const { data, error } = await getSupabase()
 		.from("waitlist_entries")
-		.select("plan_id,id.count()")
+		.select("plan_id")
 		.eq("company_id", companyId)
 		.eq("status", "subscribed");
 	if (error) throw error;
 	const counts = new Map<string, number>();
 	for (const row of data ?? []) {
-		counts.set(row.plan_id as string, Number(row.count ?? 0));
+		const planId = row.plan_id as string;
+		counts.set(planId, (counts.get(planId) ?? 0) + 1);
 	}
 	return counts;
 }
@@ -168,13 +169,14 @@ export async function getWaitingCountsByPlan(companyId: string) {
 export async function getWaitingCounts(companyId: string) {
 	const { data, error } = await getSupabase()
 		.from("waitlist_entries")
-		.select("product_id,id.count()")
+		.select("product_id")
 		.eq("company_id", companyId)
 		.eq("status", "subscribed");
 	if (error) throw error;
 	const counts = new Map<string, number>();
 	for (const row of data ?? []) {
-		counts.set(row.product_id as string, Number(row.count ?? 0));
+		const productId = row.product_id as string;
+		counts.set(productId, (counts.get(productId) ?? 0) + 1);
 	}
 	return counts;
 }
