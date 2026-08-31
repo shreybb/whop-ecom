@@ -26,6 +26,15 @@ describe("resolveCatalogCompanyId", () => {
 		).resolves.toBe("biz_2");
 	});
 
+	it("prefers nested account.id on plan payloads", async () => {
+		await expect(
+			resolveCatalogCompanyId("plan.updated", {
+				id: "plan_1",
+				account: { id: "biz_account" },
+			}),
+		).resolves.toBe("biz_account");
+	});
+
 	it("falls back to envelope company_id", async () => {
 		await expect(
 			resolveCatalogCompanyId(

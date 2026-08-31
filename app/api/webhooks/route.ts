@@ -31,11 +31,13 @@ type CatalogWebhookEvent = {
 	data: {
 		id: string;
 		company?: { id: string } | null;
+		account?: { id: string } | null;
 		product?: { id: string } | null;
 		account_id?: string | null;
 		company_id?: string | null;
 	};
 	company_id?: string | null;
+	account_id?: string | null;
 };
 
 // Official Whop webhook events (not in pinned SDK): refund.created, refund.updated
@@ -163,7 +165,7 @@ async function handleCatalogChanged(event: CatalogWebhookEvent) {
 	const companyId = await resolveCatalogCompanyId(
 		event.type,
 		event.data,
-		event.company_id,
+		event.account_id ?? event.company_id,
 	);
 	if (!companyId) {
 		console.warn(
