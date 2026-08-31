@@ -1,17 +1,18 @@
 import { getCompany, upsertCompany } from "@/lib/db/companies";
 import {
-	aggregatePlansToProducts,
 	deleteStaleTrackedPlans,
 	getTrackedPlans,
 	upsertTrackedPlans,
 } from "@/lib/db/products";
-import type { RestockEvent, TrackedPlan, TrackedProduct } from "@/lib/db/types";
+import type { RestockEvent, TrackedPlan } from "@/lib/db/types";
 import {
 	claimWaitingSubscribers,
 	countPendingNotifyForPlan,
+	countRestockEventsForPlan,
 	countSubscribedForPlan,
 	createRestockEvent,
 	resetPlanNotifyEligibility,
+	rollbackNotifyClaims,
 	setRestockNotifiedCount,
 } from "@/lib/db/waitlist";
 import { sendWaitlistAlert } from "@/lib/alerts";
@@ -69,11 +70,8 @@ async function fetchLiveSnapshot(companyId: string): Promise<PlanSnapshot[]> {
 
 export type SyncResult = {
 	plans: TrackedPlan[];
-	products: TrackedProduct[];
 	restockedPlanIds: string[];
 	soldOutPlanIds: string[];
-	restockedProductIds: string[];
-	soldOutProductIds: string[];
 };
 
 export async function syncCompanyStock(
@@ -84,8 +82,7 @@ export async function syncCompanyStock(
 	const cached = await getTrackedPlans(companyId);
 	const newestSync = cached.reduce((max, p) => Math.max(max, new Date(p.last_synced_at).getTime()), 0);
 	if (!options.force && cached.length > 0 && Date.now() - newestSync < SYNC_THROTTLE_MS) {
-		const products = aggregatePlansToProducts(cached);
-		return { plans: cached, products, restockedPlanIds: [], soldOutPlanIds: [], restockedProductIds: [], soldOutProductIds: [] };
+		return { plans: cached, restockedPlanIds: [], soldOutPlanIds: [] };
 	}
 	const live = await fetchLiveSnapshot(companyId);
 	const liveKeys = new Set(live.map((s) => `${s.product_id}:${s.plan_id}`));
@@ -94,7 +91,6 @@ export async function syncCompanyStock(
 	const deleted = await deleteStaleTrackedPlans(companyId, liveKeys);
 	if (deleted > 0) console.info(`[stock] removed ${deleted} stale plan rows for ${companyId}`);
 	const plans = await getTrackedPlans(companyId);
-	const products = aggregatePlansToProducts(plans);
 	const planById = new Map(plans.map((p) => [p.plan_id, p]));
 	const company = (await getCompany(companyId)) ?? (await upsertCompany(companyId));
 	for (const planId of restockedPlanIds) {
@@ -112,9 +108,7 @@ export async function syncCompanyStock(
 			content: "Restocked is now collecting demand — customers can join the waitlist and you can notify them all in one click when you restock.",
 		}).catch((err) => console.error("[stock] sellout notify failed", err));
 	}
-	const restockedProductIds = [...new Set(restockedPlanIds.map((id) => planById.get(id)?.product_id).filter((id): id is string => Boolean(id)))];
-	const soldOutProductIds = [...new Set(soldOutPlanIds.map((id) => planById.get(id)?.product_id).filter((id): id is string => Boolean(id)))];
-	return { plans, products, restockedPlanIds, soldOutPlanIds, restockedProductIds, soldOutProductIds };
+	return { plans, restockedPlanIds, soldOutPlanIds };
 }
 
 export async function notifyWaitlistForPlan(
@@ -126,11 +120,18 @@ export async function notifyWaitlistForPlan(
 	const pendingNotify = await countPendingNotifyForPlan(companyId, plan.plan_id);
 	const stockLeft = plan.unlimited ? null : plan.stock_left;
 	if (pendingNotify === 0) return { notified: 0, waiting, pendingNotify, stockLeft };
+	const variantIndex = await countRestockEventsForPlan(companyId, plan.plan_id);
 	const event = await createRestockEvent(companyId, plan.product_id, plan.plan_id, source);
 	const claimed = await claimWaitingSubscribers(companyId, plan.plan_id, event.id);
 	if (claimed.length === 0) return { notified: 0, waiting, pendingNotify, stockLeft };
 	const company = await getCompany(companyId);
-	const defaults = buildWaitlistNotifyMessage(company, plan, { title: "", content: "" }, source);
+	const defaults = buildWaitlistNotifyMessage(
+		company,
+		plan,
+		{ title: "", content: "" },
+		source,
+		variantIndex,
+	);
 	const byExperience = new Map<string, typeof claimed>();
 	for (const entry of claimed) {
 		const list = byExperience.get(entry.experience_id) ?? [];
@@ -138,6 +139,7 @@ export async function notifyWaitlistForPlan(
 		byExperience.set(entry.experience_id, list);
 	}
 	let notified = 0;
+	const undeliveredEntryIds: string[] = [];
 	for (const [experienceId, group] of byExperience) {
 		const result = await sendWaitlistAlert({
 			companyId,
@@ -157,9 +159,17 @@ export async function notifyWaitlistForPlan(
 			purchaseUrl: plan.in_stock ? plan.purchase_url : null,
 			inStock: plan.in_stock,
 		});
-		const alertOk = result.pushSkipped || result.pushSent > 0 || result.emailsSent > 0 || (result.pushFailed === 0 && !result.pushSkipped);
-		if (alertOk) notified += group.length;
-		else console.warn("[stock] alert failed; entries stay subscribed", result.lastError);
+		const delivered = new Set(result.deliveredUserIds);
+		for (const entry of group) {
+			if (delivered.has(entry.whop_user_id)) notified += 1;
+			else {
+				undeliveredEntryIds.push(entry.id);
+				console.warn("[stock] alert not delivered; entry stays retryable", entry.whop_user_id, result.lastError);
+			}
+		}
+	}
+	if (undeliveredEntryIds.length > 0) {
+		await rollbackNotifyClaims(companyId, undeliveredEntryIds);
 	}
 	await setRestockNotifiedCount(event.id, notified);
 	const label = plan.plan_title ? `${plan.title} — ${plan.plan_title}` : plan.title;
@@ -170,13 +180,3 @@ export async function notifyWaitlistForPlan(
 	return { notified, waiting, pendingNotify: Math.max(0, pendingNotify - notified), stockLeft };
 }
 
-export async function notifyWaitlistForProduct(
-	companyId: string,
-	product: TrackedProduct,
-	source: RestockEvent["source"],
-): Promise<{ notified: number }> {
-	const plans = (await getTrackedPlans(companyId)).filter((p) => p.product_id === product.product_id);
-	let notified = 0;
-	for (const plan of plans) notified += (await notifyWaitlistForPlan(companyId, plan, source)).notified;
-	return { notified };
-}

@@ -1,4 +1,5 @@
 import { headers } from "next/headers";
+import { resolveDropsShareUrl } from "@/app/actions-merchant";
 import { getCompany, upsertCompany } from "@/lib/db/companies";
 import {
 	getDashboardStats,
@@ -7,7 +8,10 @@ import {
 } from "@/lib/db/stats";
 import { syncCompanyStock } from "@/lib/stock";
 import { getWhopSdk } from "@/lib/whop-sdk";
+import { ActivityTime } from "./activity-time";
 import { AutoNotifyToggle, SyncButton } from "./controls";
+import { CopyDropsLink } from "./copy-drops-link";
+import { ExportWaitlistButton } from "./export-waitlist-button";
 import { NotifyTemplatesForm } from "./notify-templates";
 import { OnboardingChecklist } from "./onboarding-checklist";
 import { PlanTable } from "./plan-table";
@@ -37,13 +41,15 @@ export default async function DashboardPage({
 	}
 
 	await upsertCompany(companyId);
-	const [{ plans }, stats, planStats, activity, company] = await Promise.all([
-		syncCompanyStock(companyId, "sync"),
-		getDashboardStats(companyId),
-		getPerPlanStats(companyId),
-		getRecentActivity(companyId),
-		getCompany(companyId),
-	]);
+	const [{ plans }, stats, planStats, activity, company, dropsLink] =
+		await Promise.all([
+			syncCompanyStock(companyId, "sync"),
+			getDashboardStats(companyId),
+			getPerPlanStats(companyId),
+			getRecentActivity(companyId),
+			getCompany(companyId),
+			resolveDropsShareUrl(companyId).catch(() => null),
+		]);
 
 	const conversionRate =
 		stats.notified > 0
@@ -99,7 +105,9 @@ export default async function DashboardPage({
 				</div>
 			</header>
 
-			{showOnboarding && <OnboardingChecklist />}
+			{showOnboarding && (
+				<OnboardingChecklist dropsShareUrl={dropsLink?.url ?? null} />
+			)}
 
 			<section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
 				<StatCard label="Waiting now" value={String(stats.waiting)} />
@@ -122,19 +130,41 @@ export default async function DashboardPage({
 			/>
 
 			<section className="flex flex-col gap-2">
-				<h2 className="text-5 font-semibold">Plans</h2>
+				<div className="flex flex-wrap items-center justify-between gap-2">
+					<h2 className="text-5 font-semibold">Plans</h2>
+					{dropsLink ? (
+						<div className="flex flex-col items-end gap-0.5">
+							<CopyDropsLink
+								url={dropsLink.url}
+								label="Copy Drops link"
+								size="2"
+							/>
+							<p className="text-1 text-gray-9">
+								Share on Discord or IG when something sells out — fans land on
+								your {dropsLink.experienceName} tab.
+							</p>
+						</div>
+					) : null}
+				</div>
 				{tableRows.length === 0 ? (
 					<p className="rounded-xl border border-gray-a4 bg-gray-a2 p-6 text-center text-3 text-gray-10">
 						No plans found. Publish a product with at least one priced plan
 						on your whop and hit &ldquo;Sync stock&rdquo;.
 					</p>
 				) : (
-					<PlanTable companyId={companyId} rows={tableRows} />
+					<PlanTable
+						companyId={companyId}
+						rows={tableRows}
+						dropsShareUrl={dropsLink?.url ?? null}
+					/>
 				)}
 			</section>
 
 			<section className="flex flex-col gap-2">
-				<h2 className="text-5 font-semibold">Recent activity</h2>
+				<div className="flex flex-wrap items-center justify-between gap-2">
+					<h2 className="text-5 font-semibold">Recent activity</h2>
+					<ExportWaitlistButton companyId={companyId} />
+				</div>
 				{activity.length === 0 ? (
 					<p className="rounded-xl border border-gray-a4 bg-gray-a2 p-6 text-center text-3 text-gray-10">
 						No activity yet. When customers join waitlists, restocks are
@@ -162,14 +192,7 @@ export default async function DashboardPage({
 									</span>{" "}
 									<span className="text-gray-10">— {item.detail}</span>
 								</span>
-								<time className="shrink-0 text-2 text-gray-9">
-									{new Date(item.at).toLocaleString("en-US", {
-										month: "short",
-										day: "numeric",
-										hour: "numeric",
-										minute: "2-digit",
-									})}
-								</time>
+								<ActivityTime at={item.at} />
 							</li>
 						))}
 					</ul>

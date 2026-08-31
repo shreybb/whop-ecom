@@ -1,4 +1,4 @@
-import { sendEmailBatch } from "@/lib/email";
+import { sendEmail } from "@/lib/email";
 import { sendNotification } from "@/lib/notify";
 import { getMemberProfilesForUsers, type MemberProfile } from "@/lib/whop-members";
 import {
@@ -29,9 +29,12 @@ export type WaitlistAlertResult = {
 	emailsSent: number;
 	emailsFailed: number;
 	emailsSkipped: boolean;
-	delivered: boolean;
+	/** Whop user ids that received push and/or email. */
+	deliveredUserIds: string[];
 	lastError?: string;
 };
+
+const PUSH_CHUNK_SIZE = 25;
 
 function buildEmailBodies(
 	alert: WaitlistAlert,
@@ -50,53 +53,88 @@ function buildEmailBodies(
 		inStock: alert.inStock,
 	};
 
-	const messages = [];
+	const messages: { userId: string; message: ReturnType<typeof buildWaitlistEmailMessage> }[] = [];
 	for (const recipient of alert.recipients) {
 		const profile = profiles.get(recipient.userId);
 		if (!profile) continue;
-		messages.push(
-			buildWaitlistEmailMessage(
+		messages.push({
+			userId: recipient.userId,
+			message: buildWaitlistEmailMessage(
 				emailContent,
 				profile,
 				recipient.username,
 			),
-		);
+		});
 	}
 	return messages;
 }
 
-/** Push (Whop) + email (Resend). Delivers if either channel succeeds. */
+/** Push (Whop) + email (Resend). A recipient counts as delivered on either channel. */
 export async function sendWaitlistAlert(
 	alert: WaitlistAlert,
 ): Promise<WaitlistAlertResult> {
 	const userIds = alert.recipients.map((r) => r.userId);
+	const pushDelivered = new Set<string>();
+	let pushSent = 0;
+	let pushFailed = 0;
+	let pushSkipped = false;
+	let lastError: string | undefined;
 
-	const push = await sendNotification(
-		{ experienceId: alert.experienceId, userIds },
-		{
-			title: alert.title,
-			content: alert.content,
-			restPath: alert.restPath,
-		},
-	);
+	for (let i = 0; i < userIds.length; i += PUSH_CHUNK_SIZE) {
+		const chunkIds = userIds.slice(i, i + PUSH_CHUNK_SIZE);
+		const push = await sendNotification(
+			{ experienceId: alert.experienceId, userIds: chunkIds },
+			{
+				title: alert.title,
+				content: alert.content,
+				restPath: alert.restPath,
+			},
+		);
+		if (push.skipped) {
+			pushSkipped = true;
+			continue;
+		}
+		if (push.sent > 0 && push.failed === 0) {
+			pushSent += push.sent;
+			for (const userId of chunkIds) pushDelivered.add(userId);
+		} else if (push.failed > 0) {
+			pushFailed += push.failed;
+			lastError = push.lastError;
+		}
+	}
 
 	const profiles = await getMemberProfilesForUsers(alert.companyId, userIds);
-	const emailBatch = await sendEmailBatch(buildEmailBodies(alert, profiles));
+	const emailBodies = buildEmailBodies(alert, profiles);
+	const emailDelivered = new Set<string>();
+	let emailsSent = 0;
+	let emailsFailed = 0;
+	let emailsSkipped = false;
 
-	const delivered =
-		push.skipped ||
-		push.sent > 0 ||
-		emailBatch.sent > 0 ||
-		(push.failed === 0 && !push.skipped);
+	for (const { userId, message } of emailBodies) {
+		const result = await sendEmail(message);
+		if (result.skipped) {
+			emailsSkipped = true;
+			break;
+		}
+		if (result.ok) {
+			emailsSent += 1;
+			emailDelivered.add(userId);
+		} else {
+			emailsFailed += 1;
+			lastError = result.error ?? lastError;
+		}
+	}
+
+	const deliveredUserIds = [...new Set([...pushDelivered, ...emailDelivered])];
 
 	return {
-		pushSent: push.sent,
-		pushFailed: push.failed,
-		pushSkipped: Boolean(push.skipped),
-		emailsSent: emailBatch.sent,
-		emailsFailed: emailBatch.failed,
-		emailsSkipped: emailBatch.skipped,
-		delivered,
-		lastError: push.lastError,
+		pushSent,
+		pushFailed,
+		pushSkipped,
+		emailsSent,
+		emailsFailed,
+		emailsSkipped,
+		deliveredUserIds,
+		lastError,
 	};
 }

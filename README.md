@@ -56,8 +56,9 @@ Customer (experience view)          Merchant (dashboard view)
   ┌───────────────────────────────────────────────────┐
   │ Next.js on Vercel                                 │
   │  server actions ── lib/stock.ts ── lib/db/* ──────┼── Supabase (Postgres)
-  │  /api/webhooks  (payment.succeeded, product.*)    │
-  │  /api/cron/sync-stock (daily safety net)          │
+  │  /api/webhooks  (payment.succeeded, product.*,   │
+  │                  plan.*, refund.*)             │
+  │  /api/cron/sync-stock (daily on Vercel Hobby)     │
   └───────────────────────────────────────────────────┘
         │                    ▲
         ▼                    │ x-whop-user-token (verified per request)
@@ -74,7 +75,7 @@ Whop has no stock field on products — availability lives on plans
    re-sync within seconds.
 2. **Lazy sync on page views** — any customer or merchant opening the app
    refreshes stock state (throttled to once/minute per tenant).
-3. **Daily cron** — upper bound on staleness for dormant tenants.
+3. **Daily cron** — upper bound on staleness for dormant tenants (Vercel Hobby runs cron once per day; upgrade to Pro for hourly).
 4. **Manual "Notify waitlist" button** — the merchant stays in control.
 
 A sold-out → in-stock transition creates a `restock_event` and (if
@@ -125,7 +126,7 @@ The tenant is the installing Whop company (`biz_*`).
 app/
   experiences/[experienceId]/   customer "Drops" view + waitlist button
   dashboard/[companyId]/        merchant dashboard (stats, table, feed)
-  api/webhooks/                 payment.succeeded + product.* ingestion
+  api/webhooks/                 payment.succeeded, product.*, plan.*, refund.*
   api/cron/sync-stock/          daily safety-net sync
   actions.ts                    server actions (auth re-verified per call)
 lib/
@@ -147,7 +148,7 @@ npm run dev                      # wraps whop-proxy for real iframe auth
 Env vars: `WHOP_API_KEY`, `WHOP_API_BASE` (sandbox:
 `https://sandbox-api.whop.com/api/v1`), `NEXT_PUBLIC_WHOP_APP_ID`,
 `WHOP_WEBHOOK_SECRET`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`,
-`CRON_SECRET`. Optional email alerts: `RESEND_API_KEY`, `EMAIL_FROM` (needs
+`CRON_SECRET` (protects `/api/cron/sync-stock` and authorized `/api/health`). On Vercel Hobby, cron runs once per day — upgrade to Pro for hourly. Optional email alerts: `RESEND_API_KEY`, `EMAIL_FROM` (needs
 `member:email:read` on the Whop app).
 
 ### Sandbox setup (sandbox.whop.com)
@@ -158,7 +159,7 @@ Dashboard checklist (API key cannot set hosting/webhooks without scopes):
 
 1. Hosting: base URL `https://whop-ecom-beta.vercel.app`, dashboard path `/dashboard/[companyId]`
 2. Permissions: product, plan, payment, member read + notification:create
-3. Webhook → `/api/webhooks` (payment.succeeded, product.updated, product.created)
+3. Webhook → `/api/webhooks` (payment.succeeded, product.*, plan.created, plan.updated, plan.deleted, refund.created, refund.updated)
 4. Install: `https://sandbox.whop.com/apps/app_WemaJ0mtcGCZWd/install`
 5. Add Drops experience to products (`scripts/seed-products-manual.sh`)
 6. Supabase: run `supabase/migrations/0001_init.sql`, wire env on Vercel

@@ -29,6 +29,36 @@ function windowStartIso(): string {
 		Date.now() - ATTRIBUTION_WINDOW_DAYS * 24 * 60 * 60 * 1000,
 	).toISOString();
 }
+function parseAggregateSum(
+	rows: { sum: number | string | null }[] | null | undefined,
+): number {
+	return Number(rows?.[0]?.sum ?? 0);
+}
+
+function groupedSumsByKey(
+	rows: { sum: number | string | null; [key: string]: unknown }[] | null | undefined,
+	key: string,
+): Map<string, number> {
+	const map = new Map<string, number>();
+	for (const row of rows ?? []) {
+		const id = row[key] as string;
+		map.set(id, Number(row.sum ?? 0));
+	}
+	return map;
+}
+
+function groupedCountsByKey(
+	rows: { count: number | string | null; [key: string]: unknown }[] | null | undefined,
+	key: string,
+): Map<string, number> {
+	const map = new Map<string, number>();
+	for (const row of rows ?? []) {
+		const id = row[key] as string;
+		map.set(id, Number(row.count ?? 0));
+	}
+	return map;
+}
+
 
 export async function getDashboardStats(companyId: string): Promise<DashboardStats> {
 	const client = getSupabase();
@@ -38,7 +68,7 @@ export async function getDashboardStats(companyId: string): Promise<DashboardSta
 			client.from("waitlist_entries").select("id", { count: "exact", head: true }).eq("company_id", companyId).eq("status", "subscribed"),
 			client.from("waitlist_entries").select("id", { count: "exact", head: true }).eq("company_id", companyId).not("last_notified_at", "is", null).gte("last_notified_at", windowStart),
 			client.from("waitlist_entries").select("id", { count: "exact", head: true }).eq("company_id", companyId).eq("status", "converted"),
-			client.from("conversions").select("amount_usd").eq("company_id", companyId).is("refunded_at", null),
+			client.from("conversions").select("amount_usd.sum()").eq("company_id", companyId).is("refunded_at", null),
 			client.from("conversions").select("id", { count: "exact", head: true }).eq("company_id", companyId).gte("created_at", windowStart).is("refunded_at", null),
 		]);
 	for (const res of [waitingRes, notifiedRes, convertedRes, recoveredRes, windowConvRes]) {
@@ -50,7 +80,7 @@ export async function getDashboardStats(companyId: string): Promise<DashboardSta
 		waiting: waitingRes.count ?? 0,
 		notified,
 		converted: convertedRes.count ?? 0,
-		recoveredUsd: (recoveredRes.data ?? []).reduce((sum, c) => sum + (Number(c.amount_usd) || 0), 0),
+		recoveredUsd: parseAggregateSum(recoveredRes.data),
 		conversionRate: notified > 0 ? windowConversions / notified : 0,
 	};
 }
@@ -58,14 +88,14 @@ export async function getDashboardStats(companyId: string): Promise<DashboardSta
 export async function getPerPlanStats(companyId: string): Promise<Map<string, PlanStats>> {
 	const client = getSupabase();
 	const windowStart = windowStartIso();
-	const [entriesRes, convRes, windowConvRes] = await Promise.all([
+	const [entriesRes, recoveredByPlanRes, windowConvByPlanRes] = await Promise.all([
 		client.from("waitlist_entries").select("plan_id,status,last_notified_at").eq("company_id", companyId),
-		client.from("conversions").select("plan_id,amount_usd").eq("company_id", companyId).is("refunded_at", null),
-		client.from("conversions").select("plan_id").eq("company_id", companyId).gte("created_at", windowStart).is("refunded_at", null),
+		client.from("conversions").select("plan_id,amount_usd.sum()").eq("company_id", companyId).is("refunded_at", null),
+		client.from("conversions").select("plan_id,id.count()").eq("company_id", companyId).gte("created_at", windowStart).is("refunded_at", null),
 	]);
 	if (entriesRes.error) throw entriesRes.error;
-	if (convRes.error) throw convRes.error;
-	if (windowConvRes.error) throw windowConvRes.error;
+	if (recoveredByPlanRes.error) throw recoveredByPlanRes.error;
+	if (windowConvByPlanRes.error) throw windowConvByPlanRes.error;
 	const map = new Map<string, PlanStats>();
 	const get = (planId: string): PlanStats => {
 		let s = map.get(planId);
@@ -86,13 +116,10 @@ export async function getPerPlanStats(companyId: string): Promise<Map<string, Pl
 		const notifiedAt = row.last_notified_at as string | null;
 		if (notifiedAt && notifiedAt >= windowStart) s.notified += 1;
 	}
-	const windowConvByPlan = new Map<string, number>();
-	for (const row of windowConvRes.data ?? []) {
-		const planId = row.plan_id as string;
-		windowConvByPlan.set(planId, (windowConvByPlan.get(planId) ?? 0) + 1);
-	}
-	for (const row of convRes.data ?? []) {
-		get(row.plan_id as string).recoveredUsd += Number(row.amount_usd) || 0;
+	const recoveredByPlan = groupedSumsByKey(recoveredByPlanRes.data, "plan_id");
+	const windowConvByPlan = groupedCountsByKey(windowConvByPlanRes.data, "plan_id");
+	for (const [planId, recoveredUsd] of recoveredByPlan) {
+		get(planId).recoveredUsd = recoveredUsd;
 	}
 	for (const [planId, s] of map) {
 		const windowConversions = windowConvByPlan.get(planId) ?? 0;
@@ -104,12 +131,12 @@ export async function getPerPlanStats(companyId: string): Promise<Map<string, Pl
 export async function getPerProductStats(companyId: string): Promise<Map<string, ProductStats>> {
 	const client = getSupabase();
 	const windowStart = windowStartIso();
-	const [entriesRes, convRes] = await Promise.all([
+	const [entriesRes, recoveredByProductRes] = await Promise.all([
 		client.from("waitlist_entries").select("product_id,status,last_notified_at").eq("company_id", companyId),
-		client.from("conversions").select("product_id,amount_usd").eq("company_id", companyId).is("refunded_at", null),
+		client.from("conversions").select("product_id,amount_usd.sum()").eq("company_id", companyId).is("refunded_at", null),
 	]);
 	if (entriesRes.error) throw entriesRes.error;
-	if (convRes.error) throw convRes.error;
+	if (recoveredByProductRes.error) throw recoveredByProductRes.error;
 	const map = new Map<string, ProductStats>();
 	const get = (id: string) => {
 		let s = map.get(id);
@@ -125,8 +152,11 @@ export async function getPerProductStats(companyId: string): Promise<Map<string,
 		const notifiedAt = row.last_notified_at as string | null;
 		if (notifiedAt && notifiedAt >= windowStart) s.notified += 1;
 	}
-	for (const row of convRes.data ?? []) {
-		get(row.product_id as string).recoveredUsd += Number(row.amount_usd) || 0;
+	for (const [productId, recoveredUsd] of groupedSumsByKey(
+		recoveredByProductRes.data,
+		"product_id",
+	)) {
+		get(productId).recoveredUsd = recoveredUsd;
 	}
 	return map;
 }

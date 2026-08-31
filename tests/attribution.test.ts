@@ -9,6 +9,124 @@ vi.mock("@/lib/supabase", () => ({
 
 import { getSupabase } from "@/lib/supabase";
 
+type Row = Record<string, unknown>;
+
+type Filter =
+	| { kind: "eq"; column: string; value: unknown }
+	| { kind: "gte"; column: string; value: unknown }
+	| { kind: "is"; column: string; value: unknown };
+
+function matchesFilters(row: Row, filters: Filter[]): boolean {
+	for (const filter of filters) {
+		switch (filter.kind) {
+			case "eq":
+				if (row[filter.column] !== filter.value) return false;
+				break;
+			case "gte":
+				if (String(row[filter.column] ?? "") < String(filter.value)) return false;
+				break;
+			case "is":
+				if (filter.value === null) {
+					if (row[filter.column] !== null && row[filter.column] !== undefined) return false;
+				} else if (row[filter.column] !== filter.value) return false;
+				break;
+		}
+	}
+	return true;
+}
+
+function createAggregateAwareSupabase(initial: Record<string, Row[]> = {}) {
+	const base = createMockSupabase(initial);
+	const origFrom = base.client.from.bind(base.client);
+
+	function aggregateResult(table: string, columns: string, filters: Filter[]) {
+		const rows = (base.store.get(table) ?? []).filter((row) => matchesFilters(row, filters));
+		if (columns === "amount_usd.sum()") {
+			const sum = rows.reduce((total, row) => total + Number(row.amount_usd ?? 0), 0);
+			return { data: [{ sum }], error: null };
+		}
+		if (columns === "plan_id,amount_usd.sum()" || columns === "product_id,amount_usd.sum()") {
+			const key = columns.startsWith("plan_id") ? "plan_id" : "product_id";
+			const grouped = new Map<string, number>();
+			for (const row of rows) {
+				const id = String(row[key]);
+				grouped.set(id, (grouped.get(id) ?? 0) + Number(row.amount_usd ?? 0));
+			}
+			return {
+				data: [...grouped.entries()].map(([id, sum]) => ({ [key]: id, sum })),
+				error: null,
+			};
+		}
+		if (columns === "plan_id,id.count()") {
+			const grouped = new Map<string, number>();
+			for (const row of rows) {
+				const id = String(row.plan_id);
+				grouped.set(id, (grouped.get(id) ?? 0) + 1);
+			}
+			return {
+				data: [...grouped.entries()].map(([plan_id, count]) => ({ plan_id, count })),
+				error: null,
+			};
+		}
+		return { data: [], error: null };
+	}
+
+	return {
+		...base,
+		client: {
+			from(table: string) {
+				const builder = origFrom(table);
+				let selectColumns = "*";
+				const filters: Filter[] = [];
+				const origSelect = builder.select.bind(builder);
+				const isAggregateSelect = () => selectColumns.includes(".sum()") || selectColumns.includes(".count()");
+				const proxy = new Proxy(builder, {
+					get(target, prop, receiver) {
+						if (prop === "select") {
+							return (columns = "*", opts?: { count?: string; head?: boolean }) => {
+								selectColumns = columns;
+								origSelect(columns, opts);
+								return proxy;
+							};
+						}
+						if (!isAggregateSelect()) {
+							const value = Reflect.get(target, prop, receiver);
+							return typeof value === "function" ? value.bind(target) : value;
+						}
+						if (prop === "eq") {
+							return (column: string, value: unknown) => {
+								filters.push({ kind: "eq", column, value });
+								return proxy;
+							};
+						}
+						if (prop === "gte") {
+							return (column: string, value: unknown) => {
+								filters.push({ kind: "gte", column, value });
+								return proxy;
+							};
+						}
+						if (prop === "is") {
+							return (column: string, value: unknown) => {
+								if (value === null) filters.push({ kind: "is", column, value: null });
+								return proxy;
+							};
+						}
+						if (prop === "then") {
+							return (onFulfilled?: (value: unknown) => unknown, onRejected?: (reason: unknown) => unknown) => {
+								const aggregate = aggregateResult(table, selectColumns, filters);
+								return Promise.resolve(aggregate).then(onFulfilled, onRejected);
+							};
+						}
+						const value = Reflect.get(target, prop, receiver);
+						return typeof value === "function" ? value.bind(target) : value;
+					},
+				});
+				return proxy;
+			},
+		},
+	};
+}
+
 const COMPANY = "biz_a";
 const notifiedAt = new Date().toISOString();
 
@@ -88,7 +206,7 @@ describe("recovered revenue excludes refunds", () => {
 	});
 
 	it("excludes refunded conversions from per-plan recovered revenue", async () => {
-		const mock = createMockSupabase({
+		const mock = createAggregateAwareSupabase({
 			waitlist_entries: [],
 			conversions: [
 				{ company_id: COMPANY, plan_id: "plan_s", amount_usd: 50, refunded_at: null },

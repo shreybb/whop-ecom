@@ -4,6 +4,7 @@ import { Button } from "@whop/react/components";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { notifyWaitlistAction } from "@/app/actions";
+import { CopyDropsLink } from "./copy-drops-link";
 
 export type PlanRow = {
 	planId: string;
@@ -49,9 +50,11 @@ function planLabel(row: PlanRow) {
 export function PlanTable({
 	companyId,
 	rows,
+	dropsShareUrl,
 }: {
 	companyId: string;
 	rows: PlanRow[];
+	dropsShareUrl: string | null;
 }) {
 	if (rows.length === 0) {
 		return null;
@@ -78,6 +81,7 @@ export function PlanTable({
 							key={row.planId}
 							companyId={companyId}
 							row={row}
+							dropsShareUrl={dropsShareUrl}
 						/>
 					))}
 				</tbody>
@@ -89,9 +93,11 @@ export function PlanTable({
 function PlanTableRow({
 	companyId,
 	row,
+	dropsShareUrl,
 }: {
 	companyId: string;
 	row: PlanRow;
+	dropsShareUrl: string | null;
 }) {
 	const router = useRouter();
 	const [isPending, startTransition] = useTransition();
@@ -123,9 +129,18 @@ function PlanTableRow({
 						<div className="truncate font-medium">{planLabel(row)}</div>
 						{stampede && (
 							<p className="mt-0.5 text-1 text-amber-11">
-								{row.waiting} waiting but only {row.stockLeft} in stock —
-								blast alerts everyone; some may miss out.
+								{row.waiting} on the waitlist but only {row.stockLeft} in
+								stock — Notify blasts everyone on the list; stock may run out
+								before they all check out.
 							</p>
+						)}
+						{!row.inStock && (
+							<div className="mt-1">
+								<CopyDropsLink
+									url={dropsShareUrl}
+									label="Copy Drops link"
+								/>
+							</div>
 						)}
 					</div>
 				</div>
@@ -164,6 +179,11 @@ function PlanTableRow({
 						variant="classic"
 						size="1"
 						loading={isPending}
+						title={
+							stampede
+								? `Everyone on the waitlist (${row.waiting}) will be pinged. Only ${row.stockLeft} in stock — some may miss out.`
+								: undefined
+						}
 						onClick={() =>
 							startTransition(async () => {
 								const result = await notifyWaitlistAction(
@@ -178,7 +198,7 @@ function PlanTableRow({
 									} else {
 										const stampedeNote =
 											stockLeft != null && waiting > stockLeft
-												? ` (${waiting} on list, ${stockLeft} left)`
+												? ` — all ${waiting} pinged, ${stockLeft} in stock`
 												: "";
 										setFeedback(`Notified ${notified}${stampedeNote} ✓`);
 									}

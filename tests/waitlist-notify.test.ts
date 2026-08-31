@@ -1,13 +1,32 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { getDashboardStats } from "@/lib/db/stats";
-import { claimWaitingSubscribers, countSubscribedForPlan } from "@/lib/db/waitlist";
+import {
+	claimWaitingSubscribers,
+	countPendingNotifyForPlan,
+	countSubscribedForPlan,
+	rollbackNotifyClaims,
+} from "@/lib/db/waitlist";
 import { createMockSupabase, getCompanyIdFilters } from "./helpers/mock-supabase";
 
 vi.mock("@/lib/supabase", () => ({
 	getSupabase: vi.fn(),
 }));
 
+vi.mock("@/lib/alerts", () => ({
+	sendWaitlistAlert: vi.fn(),
+}));
+
+vi.mock("@/lib/notify", () => ({
+	buildWaitlistNotifyMessage: vi.fn(() => ({ title: "Back in stock", content: "Grab it now" })),
+	sendNotification: vi.fn().mockResolvedValue({ sent: 1, failed: 0 }),
+}));
+
+vi.mock("@/lib/db/companies", () => ({
+	getCompany: vi.fn().mockResolvedValue({ title: "Test Co", auto_notify: true }),
+}));
+
 import { getSupabase } from "@/lib/supabase";
+import { sendWaitlistAlert } from "@/lib/alerts";
 
 const COMPANY_A = "biz_a";
 const COMPANY_B = "biz_b";
@@ -139,6 +158,112 @@ describe("claimWaitingSubscribers", () => {
 		expect(await countSubscribedForPlan(COMPANY_A, "plan_s")).toBe(1);
 	});
 });
+
+describe("rollbackNotifyClaims", () => {
+	beforeEach(() => {
+		vi.mocked(getSupabase).mockReset();
+	});
+
+	it("claim + failed send leaves last_notified_at null", async () => {
+		const mock = createMockSupabase({
+			waitlist_entries: [
+				{
+					id: "w1",
+					company_id: COMPANY_A,
+					product_id: "prod_1",
+					plan_id: "plan_s",
+					experience_id: "exp_1",
+					whop_user_id: "user_1",
+					status: "subscribed",
+					restock_event_id: null,
+					last_notified_at: null,
+				},
+			],
+		});
+		vi.mocked(getSupabase).mockReturnValue(mock.client as never);
+
+		const claimed = await claimWaitingSubscribers(COMPANY_A, "plan_s", "restock_1");
+		expect(claimed).toHaveLength(1);
+		expect(claimed[0].last_notified_at).toBeTruthy();
+
+		await rollbackNotifyClaims(COMPANY_A, ["w1"]);
+
+		const row = (mock.store.get("waitlist_entries") ?? [])[0];
+		expect(row.status).toBe("subscribed");
+		expect(row.last_notified_at).toBeNull();
+		expect(row.restock_event_id).toBeNull();
+		expect(await countPendingNotifyForPlan(COMPANY_A, "plan_s")).toBe(1);
+	});
+});
+
+describe("notifyWaitlistForPlan delivery rollback", () => {
+	beforeEach(() => {
+		vi.mocked(getSupabase).mockReset();
+		vi.mocked(sendWaitlistAlert).mockReset();
+	});
+
+	it("rolls back claims when sendWaitlistAlert delivers nobody", async () => {
+		const mock = createMockSupabase({
+			waitlist_entries: [
+				{
+					id: "w1",
+					company_id: COMPANY_A,
+					product_id: "prod_1",
+					plan_id: "plan_s",
+					experience_id: "exp_1",
+					whop_user_id: "user_1",
+					username: "buyer1",
+					status: "subscribed",
+					restock_event_id: null,
+					last_notified_at: null,
+				},
+			],
+			restock_events: [],
+		});
+		vi.mocked(getSupabase).mockReturnValue(mock.client as never);
+		vi.mocked(sendWaitlistAlert).mockResolvedValue({
+			pushSent: 0,
+			pushFailed: 1,
+			pushSkipped: false,
+			emailsSent: 0,
+			emailsFailed: 0,
+			emailsSkipped: true,
+			deliveredUserIds: [],
+			lastError: "HTTP 500",
+		});
+
+		const { notifyWaitlistForPlan } = await import("@/lib/stock");
+		const result = await notifyWaitlistForPlan(
+			COMPANY_A,
+			{
+				company_id: COMPANY_A,
+				product_id: "prod_1",
+				plan_id: "plan_s",
+				title: "F1 Jacket",
+				plan_title: "Medium",
+				route: "f1-jacket",
+				currency: "usd",
+				price: 120,
+				purchase_url: "https://whop.com/checkout/plan_s",
+				image_url: null,
+				visibility: "visible",
+				in_stock: true,
+				stock_left: 5,
+				unlimited: false,
+				last_synced_at: new Date().toISOString(),
+			},
+			"manual",
+		);
+
+		expect(result.notified).toBe(0);
+		expect(result.pendingNotify).toBe(1);
+		const row = (mock.store.get("waitlist_entries") ?? [])[0];
+		expect(row.status).toBe("subscribed");
+		expect(row.last_notified_at).toBeNull();
+		expect(row.restock_event_id).toBeNull();
+	});
+});
+
 
 describe("tenant scope on db helpers", () => {
 	beforeEach(() => {

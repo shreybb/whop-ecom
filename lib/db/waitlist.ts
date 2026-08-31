@@ -1,30 +1,20 @@
 import { getSupabase } from "@/lib/supabase";
 import { ATTRIBUTION_WINDOW_DAYS } from "./conversions";
-import { getTrackedPlans } from "./products";
 import type { RestockEvent, WaitlistEntry } from "./types";
 
 export type LegacyWaitlistStatus = "waiting" | "notified" | "converted" | "none";
 export type WaitlistStatus = LegacyWaitlistStatus;
 
-async function resolvePlanId(companyId: string, productId: string, planId?: string) {
-	if (planId) return planId;
-	const plans = await getTrackedPlans(companyId);
-	const soldOut = plans.filter((p) => p.product_id === productId && !p.in_stock);
-	if (soldOut.length === 1) return soldOut[0].plan_id;
-	if (soldOut.length === 0) throw new Error(`No sold-out plan found for product ${productId}`);
-	return soldOut[0].plan_id;
-}
-
 export async function joinWaitlist(params: {
 	companyId: string;
 	productId: string;
-	planId?: string;
+	planId: string;
 	experienceId: string;
 	whopUserId: string;
 	username?: string | null;
 	email?: string | null;
 }) {
-	const planId = await resolvePlanId(params.companyId, params.productId, params.planId);
+	const planId = params.planId;
 	const client = getSupabase();
 	const { data: existing, error: fetchError } = await client
 		.from("waitlist_entries")
@@ -70,10 +60,10 @@ export async function joinWaitlist(params: {
 export async function leaveWaitlist(params: {
 	companyId: string;
 	productId: string;
-	planId?: string;
+	planId: string;
 	whopUserId: string;
 }) {
-	const planId = await resolvePlanId(params.companyId, params.productId, params.planId);
+	const planId = params.planId;
 	const { error } = await getSupabase()
 		.from("waitlist_entries")
 		.update({ status: "unsubscribed" })
@@ -90,18 +80,6 @@ export async function getSubscribedEntries(companyId: string, planId: string) {
 		.select()
 		.eq("company_id", companyId)
 		.eq("plan_id", planId)
-		.eq("status", "subscribed")
-		.order("created_at");
-	if (error) throw error;
-	return (data ?? []) as WaitlistEntry[];
-}
-
-export async function getWaitingEntries(companyId: string, productId: string) {
-	const { data, error } = await getSupabase()
-		.from("waitlist_entries")
-		.select()
-		.eq("company_id", companyId)
-		.eq("product_id", productId)
 		.eq("status", "subscribed")
 		.order("created_at");
 	if (error) throw error;
@@ -125,6 +103,17 @@ export async function claimWaitingSubscribers(
 		.select();
 	if (error) throw error;
 	return (data ?? []) as WaitlistEntry[];
+}
+
+/** Undo a notify claim when delivery failed so the entry stays retryable. */
+export async function rollbackNotifyClaims(companyId: string, entryIds: string[]) {
+	if (entryIds.length === 0) return;
+	const { error } = await getSupabase()
+		.from("waitlist_entries")
+		.update({ last_notified_at: null, restock_event_id: null })
+		.eq("company_id", companyId)
+		.in("id", entryIds);
+	if (error) throw error;
 }
 
 /** Subscribers who still need an alert for the current sold-out / restock cycle. */
@@ -165,14 +154,13 @@ export async function countSubscribedForPlan(companyId: string, planId: string) 
 export async function getWaitingCountsByPlan(companyId: string) {
 	const { data, error } = await getSupabase()
 		.from("waitlist_entries")
-		.select("plan_id")
+		.select("plan_id,id.count()")
 		.eq("company_id", companyId)
 		.eq("status", "subscribed");
 	if (error) throw error;
 	const counts = new Map<string, number>();
 	for (const row of data ?? []) {
-		const id = row.plan_id as string;
-		counts.set(id, (counts.get(id) ?? 0) + 1);
+		counts.set(row.plan_id as string, Number(row.count ?? 0));
 	}
 	return counts;
 }
@@ -180,14 +168,13 @@ export async function getWaitingCountsByPlan(companyId: string) {
 export async function getWaitingCounts(companyId: string) {
 	const { data, error } = await getSupabase()
 		.from("waitlist_entries")
-		.select("product_id")
+		.select("product_id,id.count()")
 		.eq("company_id", companyId)
 		.eq("status", "subscribed");
 	if (error) throw error;
 	const counts = new Map<string, number>();
 	for (const row of data ?? []) {
-		const id = row.product_id as string;
-		counts.set(id, (counts.get(id) ?? 0) + 1);
+		counts.set(row.product_id as string, Number(row.count ?? 0));
 	}
 	return counts;
 }
@@ -243,6 +230,16 @@ export async function createRestockEvent(
 		.single();
 	if (error) throw error;
 	return data as RestockEvent;
+}
+
+export async function countRestockEventsForPlan(companyId: string, planId: string) {
+	const { count, error } = await getSupabase()
+		.from("restock_events")
+		.select("id", { count: "exact", head: true })
+		.eq("company_id", companyId)
+		.eq("plan_id", planId);
+	if (error) throw error;
+	return count ?? 0;
 }
 
 export async function setRestockNotifiedCount(

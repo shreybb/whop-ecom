@@ -3,8 +3,11 @@
 import { Button } from "@whop/react/components";
 import { useState, useTransition } from "react";
 import { joinWaitlistAction, leaveWaitlistAction } from "@/app/actions";
+import {
+	resolvePlanWaitlistCta,
+	type PlanUiStatus,
+} from "@/lib/waitlist-ui";
 import type { TrackedPlan } from "@/lib/db/types";
-import type { PlanUiStatus } from "./product-group";
 
 function formatPrice(price: number | null, currency: string | null) {
 	if (price == null) return null;
@@ -93,6 +96,7 @@ export function PlanRow({
 	};
 
 	const price = formatPrice(plan.price, plan.currency);
+	const cta = resolvePlanWaitlistCta(plan, status);
 
 	return (
 		<li className="flex items-center gap-4 px-4 py-3">
@@ -138,15 +142,17 @@ export function PlanRow({
 			</div>
 
 			<div className="flex shrink-0 flex-col items-end gap-1">
-				{plan.in_stock ? (
-					plan.purchase_url && (
-						<a href={plan.purchase_url}>
-							<Button variant="classic" size="2">
-								Buy
-							</Button>
-						</a>
-					)
-				) : status === "subscribed" ? (
+				{cta === "buy" ? (
+					<a href={plan.purchase_url!}>
+						<Button variant="classic" size="2">
+							Buy
+						</Button>
+					</a>
+				) : cta === "you_got_it" ? (
+					<Button variant="soft" size="2" disabled>
+						You got it ✓
+					</Button>
+				) : cta === "on_waitlist" ? (
 					<>
 						<Button variant="soft" size="2" disabled>
 							On waitlist
@@ -160,10 +166,6 @@ export function PlanRow({
 							Leave waitlist
 						</button>
 					</>
-				) : status === "converted" ? (
-					<Button variant="soft" size="2" disabled>
-						You got it ✓
-					</Button>
 				) : (
 					<Button
 						variant="classic"

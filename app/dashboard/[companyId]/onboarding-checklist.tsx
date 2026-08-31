@@ -1,9 +1,15 @@
-export function OnboardingChecklist() {
+import { CopyDropsLink } from "./copy-drops-link";
+
+export function OnboardingChecklist({
+	dropsShareUrl,
+}: {
+	dropsShareUrl: string | null;
+}) {
 	const steps = [
 		{
 			title: "Attach Restocked to your products",
 			detail:
-				"Add this app as an experience on your whop — include a free or public product if you want non-members to join waitlists.",
+				"Add this app as a Drops experience on your whop — include a free or public product if you want non-members to join waitlists.",
 		},
 		{
 			title: "Cap stock on a plan",
@@ -11,9 +17,14 @@ export function OnboardingChecklist() {
 				"In Whop, set a finite stock limit on at least one plan (size, color, tier, etc.). Restocked tracks each plan separately.",
 		},
 		{
-			title: "Sell out, then restock",
+			title: "Share your Drops link at sellout",
 			detail:
-				"Let a plan hit zero, have someone join the waitlist on the Drops tab, then add stock back. Auto-notify will blast everyone waiting on that plan.",
+				"Whop apps can't add a button inside native checkout. When a drop sells out, paste your Drops link in Discord, IG, or your community — fans tap Notify me there.",
+		},
+		{
+			title: "Restock and recover revenue",
+			detail:
+				"Add stock back in Whop. Auto-notify pings everyone on that plan's waitlist, and purchases from alerted fans show up as recovered revenue below.",
 		},
 	];
 
@@ -28,6 +39,9 @@ export function OnboardingChecklist() {
 					tab is the recapture surface. Share it with your community when
 					something sells out.
 				</p>
+				<div className="mt-3">
+					<CopyDropsLink url={dropsShareUrl} label="Copy Drops link" size="2" />
+				</div>
 			</div>
 			<ol className="flex flex-col gap-3">
 				{steps.map((step, i) => (

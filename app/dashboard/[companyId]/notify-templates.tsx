@@ -44,8 +44,11 @@ export function NotifyTemplatesForm({
 			<div>
 				<h3 className="text-4 font-semibold">Custom alert copy</h3>
 				<p className="mt-0.5 text-2 text-gray-10">
-					Optional. Leave blank to use Restocked defaults. Sent via Whop push
-					when you or auto-notify blasts a plan&apos;s waitlist.
+					Optional restock-only copy for automatic back-in-stock alerts. Leave
+					blank to rotate through built-in restock variants each restock.
+					Sold-out Send update always uses Restocked&apos;s built-in copy, not
+					this form. Use {"{product}"}, {"{plan}"}, or{" "}
+					{"{label}"} in custom restock copy.
 				</p>
 			</div>
 			<label className="flex flex-col gap-1 text-2">

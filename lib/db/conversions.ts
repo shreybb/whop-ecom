@@ -80,6 +80,27 @@ export async function claimWebhookEvent(
 	return true;
 }
 
+/** Processing locks older than this are treated as abandoned (crash / timeout). */
+export const WEBHOOK_PROCESSING_STALE_MS = 5 * 60 * 1000;
+
+/**
+ * Atomically mark a webhook as in-flight. Returns false when another worker
+ * already holds a fresh lock or the event is processed.
+ */
+export async function tryStartWebhookProcessing(id: string): Promise<boolean> {
+	const staleBefore = new Date(Date.now() - WEBHOOK_PROCESSING_STALE_MS).toISOString();
+	const { data, error } = await getSupabase()
+		.from("webhook_events")
+		.update({ processing_started_at: new Date().toISOString() })
+		.eq("id", id)
+		.is("processed_at", null)
+		.or(`processing_started_at.is.null,processing_started_at.lt.${staleBefore}`)
+		.select("id")
+		.maybeSingle();
+	if (error) throw error;
+	return data != null;
+}
+
 export async function getWebhookEvent(id: string): Promise<WebhookEvent | null> {
 	const { data, error } = await getSupabase()
 		.from("webhook_events")
@@ -99,6 +120,7 @@ export async function incrementWebhookAttempt(id: string, lastError: string) {
 		.update({
 			attempts: (existing.attempts ?? 0) + 1,
 			last_error: lastError,
+			processing_started_at: null,
 		})
 		.eq("id", id);
 	if (error) throw error;
@@ -107,7 +129,11 @@ export async function incrementWebhookAttempt(id: string, lastError: string) {
 export async function markWebhookProcessed(id: string) {
 	const { error } = await getSupabase()
 		.from("webhook_events")
-		.update({ processed_at: new Date().toISOString(), last_error: null })
+		.update({
+			processed_at: new Date().toISOString(),
+			last_error: null,
+			processing_started_at: null,
+		})
 		.eq("id", id);
 	if (error) throw error;
 }

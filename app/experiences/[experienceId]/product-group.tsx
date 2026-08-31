@@ -2,6 +2,7 @@
 
 import type { TrackedPlan } from "@/lib/db/types";
 import type { WaitlistStatus } from "@/lib/db/waitlist";
+import { toPlanUiStatus } from "@/lib/waitlist-ui";
 import { PlanRow } from "./plan-row";
 
 export type ProductGroupData = {
@@ -10,17 +11,6 @@ export type ProductGroupData = {
 	imageUrl: string | null;
 	plans: TrackedPlan[];
 };
-
-/** UI status: subscribed covers both waiting and already-notified (persistent). */
-export type PlanUiStatus = "none" | "subscribed" | "converted";
-
-export function toPlanUiStatus(
-	status: WaitlistStatus | "none" | undefined,
-): PlanUiStatus {
-	if (status === "converted") return "converted";
-	if (status === "waiting" || status === "notified") return "subscribed";
-	return "none";
-}
 
 export function ProductGroup({
 	experienceId,

@@ -1,3 +1,8 @@
+import {
+	applyMessagePlaceholders,
+	pickMessageVariant,
+	resolveRestockMessagePool,
+} from "@/lib/notify-messages";
 import { getWhopApiBase } from "@/lib/whop-config";
 import type { CompanyRow, TrackedPlan } from "@/lib/db/types";
 
@@ -16,23 +21,32 @@ export function buildWaitlistNotifyMessage(
 	plan: Pick<TrackedPlan, "title" | "plan_title" | "purchase_url" | "in_stock">,
 	defaults: NotifyDefaults,
 	source: "manual" | "sync" | "webhook" | "cron",
+	variantIndex = 0,
 ): NotifyDefaults {
 	const label = plan.plan_title ? `${plan.title} — ${plan.plan_title}` : plan.title;
-	const fallbackTitle = plan.in_stock
-		? `${label} is back in stock!`
-		: source === "manual"
-			? `Update: ${label}`
-			: `${label} is back in stock!`;
-	const fallbackContent = plan.in_stock
-		? `You asked us to let you know — ${label} is available again. Grab it before it sells out.`
-		: source === "manual"
-			? `You're on the waitlist for ${label}. There's a new update — check the Drops tab for details.`
-			: `You asked us to let you know — ${label} is available again. Grab it before it sells out.`;
-	const title = company?.notify_title?.trim() || defaults.title || fallbackTitle;
-	const content = company?.notify_body?.trim() || defaults.content || fallbackContent;
+	const placeholders = {
+		product: plan.title,
+		plan: plan.plan_title ?? plan.title,
+		label,
+	};
+	const pool = resolveRestockMessagePool(plan.in_stock, source);
+	const variant = pickMessageVariant(pool, variantIndex);
+	const fallbackTitle = applyMessagePlaceholders(variant.title, placeholders);
+	const fallbackContent = applyMessagePlaceholders(variant.content, placeholders);
+	// Merchant notify_title/notify_body are restock-only (automatic in-stock alerts).
+	// Manual updates and sold-out sends always use built-in rotated variants.
+	const useMerchantCopy = plan.in_stock && source !== "manual";
+	const title =
+		(useMerchantCopy && company?.notify_title?.trim()) ||
+		defaults.title ||
+		fallbackTitle;
+	const content =
+		(useMerchantCopy && company?.notify_body?.trim()) ||
+		defaults.content ||
+		fallbackContent;
 	return {
-		title: title.replaceAll("{product}", plan.title).replaceAll("{plan}", plan.plan_title ?? plan.title),
-		content: content.replaceAll("{product}", plan.title).replaceAll("{plan}", plan.plan_title ?? plan.title),
+		title: applyMessagePlaceholders(title, placeholders),
+		content: applyMessagePlaceholders(content, placeholders),
 	};
 }
 

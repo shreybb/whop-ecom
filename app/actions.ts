@@ -15,6 +15,8 @@ import {
 	leaveWaitlist as dbLeaveWaitlist,
 } from "@/lib/db/waitlist";
 import { notifyWaitlistForPlan, syncCompanyStock } from "@/lib/stock";
+import { getMemberProfilesForUsers } from "@/lib/whop-members";
+import { resolveSubscriberEmail } from "@/lib/waitlist-ui";
 import { getWhopSdk } from "@/lib/whop-sdk";
 
 // Server actions re-verify the Whop user token on every call and re-derive
@@ -72,16 +74,27 @@ export async function joinWaitlistAction(
 		if (!check.ok) return check;
 
 		await upsertCompany(companyId);
-		const user = await getWhopSdk()
-			.users.retrieve(userId)
-			.catch(() => null);
+		const [profiles, user] = await Promise.all([
+			getMemberProfilesForUsers(companyId, [userId]),
+			getWhopSdk()
+				.users.retrieve(userId)
+				.catch(() => null),
+		]);
+		const memberProfile = profiles.get(userId);
+		const email = resolveSubscriberEmail(
+			memberProfile?.email,
+			user && "email" in user
+				? (user.email as string | null | undefined)
+				: null,
+		);
 		await dbJoinWaitlist({
 			companyId,
 			productId: check.data.plan.product_id,
 			planId,
 			experienceId,
 			whopUserId: userId,
-			username: user?.username ?? null,
+			username: memberProfile?.username ?? user?.username ?? null,
+			email,
 		});
 		revalidatePath(`/experiences/${experienceId}`);
 		return actionOk();

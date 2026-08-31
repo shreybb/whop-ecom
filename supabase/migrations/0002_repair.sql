@@ -1,3 +1,4 @@
+-- One-shot repair script (not a second 0002 migration).
 -- Repair partial 0002 apply. Safe to re-run (idempotent where possible).
 -- Run in Supabase SQL Editor after a failed 0002 migration.
 

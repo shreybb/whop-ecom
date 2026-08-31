@@ -1,11 +1,25 @@
 import { getSupabase } from "@/lib/supabase";
 import type { TrackedPlan, TrackedProduct } from "./types";
 
+/** Matches lib/stock.ts PLAN_SOFT_CAP — archive is unsafe when the live list is truncated. */
+export const PLAN_SOFT_CAP = 2000;
+
+export function shouldArchiveStalePlans(liveKeyCount: number): boolean {
+	if (liveKeyCount >= PLAN_SOFT_CAP) {
+		console.warn(
+			`[products] skipping stale plan archive: live plan list hit cap (${PLAN_SOFT_CAP}); plans beyond the truncated list may still exist on Whop`,
+		);
+		return false;
+	}
+	return true;
+}
+
 export async function getTrackedPlans(companyId: string): Promise<TrackedPlan[]> {
 	const { data, error } = await getSupabase()
 		.from("tracked_products")
 		.select()
 		.eq("company_id", companyId)
+		.is("archived_at", null)
 		.order("title")
 		.order("plan_title");
 	if (error) throw error;
@@ -74,44 +88,33 @@ export async function upsertTrackedPlans(
 				...r,
 				company_id: companyId,
 				last_synced_at: new Date().toISOString(),
+				archived_at: null,
 			})),
 			{ onConflict: "company_id,product_id,plan_id" },
 		);
 	if (error) throw error;
 }
 
-export async function upsertTrackedProducts(
-	companyId: string,
-	rows: Omit<TrackedProduct, "company_id" | "last_synced_at">[],
-) {
-	await upsertTrackedPlans(
-		companyId,
-		rows.map((r) => ({
-			...r,
-			plan_id: r.product_id,
-			plan_title: null,
-			image_url: null,
-			visibility: null,
-			unlimited: r.stock_left === null && r.in_stock,
-		})),
-	);
-}
-
 export async function deleteStaleTrackedPlans(
 	companyId: string,
 	liveKeys: ReadonlySet<string>,
 ) {
+	if (!shouldArchiveStalePlans(liveKeys.size)) return 0;
+
 	const cached = await getTrackedPlans(companyId);
 	const stale = cached.filter((row) => !liveKeys.has(`${row.product_id}:${row.plan_id}`));
 	if (stale.length === 0) return 0;
+
+	const archivedAt = new Date().toISOString();
 	const client = getSupabase();
 	for (const row of stale) {
 		const { error } = await client
 			.from("tracked_products")
-			.delete()
+			.update({ archived_at: archivedAt })
 			.eq("company_id", companyId)
 			.eq("product_id", row.product_id)
-			.eq("plan_id", row.plan_id);
+			.eq("plan_id", row.plan_id)
+			.is("archived_at", null);
 		if (error) throw error;
 	}
 	return stale.length;
