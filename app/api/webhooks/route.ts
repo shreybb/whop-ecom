@@ -9,6 +9,7 @@ import {
 	recordConversionIfAttributed,
 } from "@/lib/db/conversions";
 import { syncCompanyStock } from "@/lib/stock";
+import { resolveCatalogCompanyId } from "@/lib/webhook-catalog";
 import { resolveWebhookWork } from "@/lib/webhook-work";
 import { getWhopSdk } from "@/lib/whop-sdk";
 
@@ -30,7 +31,10 @@ type CatalogWebhookEvent = {
 		id: string;
 		company?: { id: string } | null;
 		product?: { id: string } | null;
+		account_id?: string | null;
+		company_id?: string | null;
 	};
+	company_id?: string | null;
 };
 
 // Official Whop webhook events (not in pinned SDK): refund.created, refund.updated
@@ -45,6 +49,10 @@ type RefundWebhookEvent = {
 };
 
 type AppWebhookEvent = UnwrapWebhookEvent | CatalogWebhookEvent | RefundWebhookEvent;
+
+function webhookJson(body: Record<string, unknown>, status = 200) {
+	return Response.json(body, { status });
+}
 
 /**
  * Whop does not emit app.installed / app.uninstalled webhook events (see
@@ -62,13 +70,15 @@ export async function POST(request: NextRequest): Promise<Response> {
 		}) as unknown as AppWebhookEvent;
 	} catch (err) {
 		console.error("[webhook] signature verification failed", err);
-		return new Response("Invalid signature", { status: 400 });
+		return webhookJson({ ok: false, error: "invalid_signature" }, 400);
 	}
 
 	const workDecision = await resolveWebhookWork(event.id, event.type, event);
 	if (workDecision === "skip_processed") {
-		return new Response("OK (duplicate)", { status: 200 });
+		return webhookJson({ ok: true, duplicate: true });
 	}
+
+	console.log(`[webhook] received ${event.type} ${event.id}`);
 
 	const work = processWebhookEvent(event);
 	waitUntil(work);
@@ -76,14 +86,14 @@ export async function POST(request: NextRequest): Promise<Response> {
 	try {
 		await work;
 		await markWebhookProcessed(event.id);
-		return new Response("OK", { status: 200 });
+		return webhookJson({ ok: true });
 	} catch (err) {
 		const message = err instanceof Error ? err.message : "unknown error";
 		console.error(`[webhook] ${event.type} failed`, err);
 		await incrementWebhookAttempt(event.id, message).catch((e) =>
 			console.error("[webhook] failed to record attempt", e),
 		);
-		return new Response("Processing failed", { status: 500 });
+		return webhookJson({ ok: false, error: "processing_failed" }, 500);
 	}
 }
 
@@ -146,8 +156,20 @@ async function handleRefund(event: RefundWebhookEvent) {
 }
 
 async function handleCatalogChanged(event: CatalogWebhookEvent) {
-	const companyId = event.data.company?.id;
-	if (!companyId) return;
+	const companyId = await resolveCatalogCompanyId(
+		event.type,
+		event.data,
+		event.company_id,
+	);
+	if (!companyId) {
+		console.warn(
+			`[webhook] ${event.type} missing company id for resource ${event.data.id}`,
+		);
+		return;
+	}
 	await upsertCompany(companyId);
-	await syncCompanyStock(companyId, "webhook", { force: true });
+	const result = await syncCompanyStock(companyId, "webhook", { force: true });
+	console.log(
+		`[webhook] ${event.type} synced ${companyId}: restocked=${result.restockedPlanIds.length} soldOut=${result.soldOutPlanIds.length}`,
+	);
 }

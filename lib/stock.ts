@@ -125,11 +125,23 @@ export async function syncCompanyStock(
 	const plans = await getTrackedPlans(companyId);
 	const planById = new Map(plans.map((p) => [p.plan_id, p]));
 	const company = (await getCompany(companyId)) ?? (await upsertCompany(companyId));
+	if (restockedPlanIds.length > 0) {
+		console.log(
+			`[stock] restock detected for ${companyId} via ${source}: ${restockedPlanIds.join(", ")}`,
+		);
+	}
 	for (const planId of restockedPlanIds) {
 		const plan = planById.get(planId);
 		if (!plan) continue;
 		await resetPlanNotifyEligibility(companyId, planId);
-		if (company.auto_notify) await notifyWaitlistForPlan(companyId, plan, source);
+		if (!company.auto_notify) {
+			console.log(`[stock] auto_notify off; skipped alert for plan ${planId}`);
+			continue;
+		}
+		const result = await notifyWaitlistForPlan(companyId, plan, source);
+		console.log(
+			`[stock] notify plan ${planId}: notified=${result.notified} waiting=${result.waiting} pending=${result.pendingNotify}`,
+		);
 	}
 	for (const planId of soldOutPlanIds) {
 		const plan = planById.get(planId);
