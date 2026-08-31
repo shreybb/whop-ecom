@@ -26,7 +26,20 @@ export async function joinWaitlist(params: {
 		.limit(1)
 		.maybeSingle();
 	if (fetchError) throw fetchError;
-	if (existing?.status === "subscribed") return { alreadyWaiting: true };
+	if (existing?.status === "subscribed") {
+		const updates: Record<string, unknown> = {};
+		if (params.experienceId) updates.experience_id = params.experienceId;
+		if (params.username !== undefined) updates.username = params.username ?? null;
+		if (params.email !== undefined) updates.email = params.email ?? null;
+		if (Object.keys(updates).length > 0) {
+			const { error } = await client
+				.from("waitlist_entries")
+				.update(updates)
+				.eq("id", existing.id);
+			if (error) throw error;
+		}
+		return { alreadyWaiting: true };
+	}
 	if (existing && existing.status !== "subscribed") {
 		const { error } = await client
 			.from("waitlist_entries")

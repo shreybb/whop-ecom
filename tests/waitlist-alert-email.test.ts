@@ -18,6 +18,29 @@ import { sendEmail } from "@/lib/email";
 describe("sendWaitlistAlert email fallback", () => {
 	beforeEach(() => {
 		vi.mocked(sendEmail).mockClear();
+		vi.mocked(sendEmail).mockResolvedValue({ ok: true });
+	});
+
+	it("does not mark multi-user chunk as push-delivered without per-user correlation", async () => {
+		const { sendNotification } = await import("@/lib/notify");
+		vi.mocked(sendNotification).mockResolvedValue({ sent: 1, failed: 0 });
+		vi.mocked(sendEmail).mockResolvedValue({ ok: false, error: "disabled" });
+
+		const result = await sendWaitlistAlert({
+			companyId: "biz_a",
+			experienceId: "exp_1",
+			recipients: [
+				{ userId: "user_1", username: "a", email: null },
+				{ userId: "user_2", username: "b", email: null },
+			],
+			title: "Hoodie is back",
+			content: "Grab it now",
+			productTitle: "Hoodie",
+			inStock: true,
+		});
+
+		expect(result.pushSent).toBe(1);
+		expect(result.deliveredUserIds).toEqual([]);
 	});
 
 	it("uses waitlist entry email when Whop member profile is missing", async () => {

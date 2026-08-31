@@ -300,7 +300,10 @@ describe("notifyWaitlistForPlan auto restock", () => {
 			deliveredUserIds: ["user_1"],
 		});
 
+		const { resetPlanNotifyEligibility } = await import("@/lib/db/waitlist");
 		const { notifyWaitlistForPlan } = await import("@/lib/stock");
+		// syncCompanyStock resets eligibility before auto-notify on restock
+		await resetPlanNotifyEligibility(COMPANY_A, "plan_s");
 		const result = await notifyWaitlistForPlan(
 			COMPANY_A,
 			{
@@ -338,6 +341,165 @@ describe("notifyWaitlistForPlan auto restock", () => {
 });
 
 
+describe("notifyWaitlistForPlan manual restock after send update", () => {
+	beforeEach(() => {
+		vi.mocked(getSupabase).mockReset();
+		vi.mocked(sendWaitlistAlert).mockReset();
+	});
+
+	it("notifies subscribers after sold-out Send update when merchant triggers restock alert", async () => {
+		const mock = createMockSupabase({
+			waitlist_entries: [
+				{
+					id: "w1",
+					company_id: COMPANY_A,
+					product_id: "prod_1",
+					plan_id: "plan_s",
+					experience_id: "exp_1",
+					whop_user_id: "user_1",
+					username: "buyer1",
+					email: "buyer@example.com",
+					status: "subscribed",
+					restock_event_id: "restock_soldout",
+					last_notified_at: "2026-01-01T00:00:00.000Z",
+				},
+			],
+			restock_events: [],
+		});
+		vi.mocked(getSupabase).mockReturnValue(mock.client as never);
+		vi.mocked(sendWaitlistAlert).mockResolvedValue({
+			pushSent: 1,
+			pushFailed: 0,
+			pushSkipped: false,
+			emailsSent: 1,
+			emailsFailed: 0,
+			emailsSkipped: false,
+			deliveredUserIds: ["user_1"],
+		});
+
+		const { notifyWaitlistForPlan } = await import("@/lib/stock");
+		const result = await notifyWaitlistForPlan(
+			COMPANY_A,
+			{
+				company_id: COMPANY_A,
+				product_id: "prod_1",
+				plan_id: "plan_s",
+				title: "F1 Jacket",
+				plan_title: "Medium",
+				route: "f1-jacket",
+				currency: "usd",
+				price: 120,
+				purchase_url: "https://whop.com/checkout/plan_s",
+				image_url: null,
+				visibility: "visible",
+				in_stock: true,
+				stock_left: 3,
+				unlimited: false,
+				last_synced_at: new Date().toISOString(),
+			},
+			"manual",
+		);
+
+		expect(result.notified).toBe(1);
+		expect(result.pendingNotify).toBe(0);
+	});
+});
+
+describe("syncCompanyStock first-sync restock", () => {
+	beforeEach(() => {
+		vi.resetModules();
+	});
+
+	it("detects restock for in-stock plans with waitlist but no cached row", async () => {
+		vi.doMock("@/lib/db/products", () => ({
+			getTrackedPlans: vi.fn()
+				.mockResolvedValueOnce([])
+				.mockResolvedValueOnce([
+					{
+						company_id: COMPANY_A,
+						product_id: "prod_1",
+						plan_id: "plan_s",
+						title: "F1 Jacket",
+						plan_title: "Medium",
+						route: "f1-jacket",
+						currency: "usd",
+						price: 120,
+						purchase_url: "https://whop.com/checkout/plan_s",
+						image_url: null,
+						visibility: "visible",
+						in_stock: true,
+						stock_left: 2,
+						unlimited: false,
+						last_synced_at: new Date().toISOString(),
+					},
+				]),
+			upsertTrackedPlans: vi.fn().mockResolvedValue(undefined),
+			deleteStaleTrackedPlans: vi.fn().mockResolvedValue(0),
+		}));
+		vi.doMock("@/lib/whop-sdk", () => ({
+			getWhopSdk: vi.fn(() => ({
+				products: {
+					list: async function* () {
+						yield {
+							id: "prod_1",
+							title: "F1 Jacket",
+							route: "f1-jacket",
+							visibility: "visible",
+							banner_image: null,
+						};
+					},
+				},
+				plans: {
+					list: async function* () {
+						yield {
+							id: "plan_s",
+							title: "Medium",
+							visibility: "visible",
+							unlimited_stock: false,
+							stock: 2,
+							currency: "usd",
+							initial_price: 120,
+							purchase_url: "https://whop.com/checkout/plan_s",
+							product: { id: "prod_1" },
+						};
+					},
+				},
+			})),
+		}));
+		vi.doMock("@/lib/db/companies", () => ({
+			getCompany: vi.fn().mockResolvedValue({ title: "Test Co", auto_notify: false }),
+			upsertCompany: vi.fn(),
+		}));
+		vi.doMock("@/lib/alerts", () => ({ sendWaitlistAlert: vi.fn() }));
+		vi.doMock("@/lib/notify", () => ({
+			buildWaitlistNotifyMessage: vi.fn(() => ({ title: "Back", content: "Now" })),
+			sendNotification: vi.fn().mockResolvedValue({ sent: 1, failed: 0 }),
+		}));
+
+		const mock = createMockSupabase({
+			waitlist_entries: [
+				{
+					id: "w1",
+					company_id: COMPANY_A,
+					product_id: "prod_1",
+					plan_id: "plan_s",
+					experience_id: "exp_1",
+					whop_user_id: "user_1",
+					status: "subscribed",
+					last_notified_at: null,
+				},
+			],
+		});
+		vi.mocked(getSupabase).mockReturnValue(mock.client as never);
+
+		const { syncCompanyStock } = await import("@/lib/stock");
+		const result = await syncCompanyStock(COMPANY_A, "sync", { force: true });
+
+		expect(result.restockedPlanIds).toEqual(["plan_s"]);
+	});
+});
+
+
 describe("tenant scope on db helpers", () => {
 	beforeEach(() => {
 		vi.mocked(getSupabase).mockReset();
@@ -363,5 +525,47 @@ describe("tenant scope on db helpers", () => {
 
 		expect(getCompanyIdFilters(mock.recorded).every((id) => id === COMPANY_B)).toBe(true);
 		expect(getCompanyIdFilters(mock.recorded).length).toBeGreaterThan(0);
+	});
+});
+
+describe("joinWaitlist re-join email refresh", () => {
+	beforeEach(() => {
+		vi.mocked(getSupabase).mockReset();
+	});
+
+	it("updates email and username when already subscribed", async () => {
+		const mock = createMockSupabase({
+			waitlist_entries: [
+				{
+					id: "w1",
+					company_id: COMPANY_A,
+					product_id: "prod_1",
+					plan_id: "plan_s",
+					experience_id: "exp_1",
+					whop_user_id: "user_1",
+					username: "oldname",
+					email: "old@example.com",
+					status: "subscribed",
+				},
+			],
+		});
+		vi.mocked(getSupabase).mockReturnValue(mock.client as never);
+
+		const { joinWaitlist } = await import("@/lib/db/waitlist");
+		const result = await joinWaitlist({
+			companyId: COMPANY_A,
+			productId: "prod_1",
+			planId: "plan_s",
+			experienceId: "exp_2",
+			whopUserId: "user_1",
+			username: "newname",
+			email: "new@example.com",
+		});
+
+		expect(result.alreadyWaiting).toBe(true);
+		const row = (mock.store.get("waitlist_entries") ?? [])[0];
+		expect(row.email).toBe("new@example.com");
+		expect(row.username).toBe("newname");
+		expect(row.experience_id).toBe("exp_2");
 	});
 });

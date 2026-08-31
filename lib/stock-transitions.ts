@@ -17,3 +17,18 @@ export function detectPlanStockTransitions(
 	}
 	return { restockedPlanIds, soldOutPlanIds };
 }
+
+/** Plans in stock with no cached row — candidates for first-sync restock when waitlisted. */
+export function detectUncachedInStockPlanIds(
+	cached: PlanStockSnapshot[],
+	live: PlanStockSnapshot[],
+): string[] {
+	const cachedByKey = new Map(cached.map((p) => [`${p.product_id}:${p.plan_id}`, p]));
+	const planIds: string[] = [];
+	for (const snap of live) {
+		if (!snap.in_stock) continue;
+		if (cachedByKey.has(`${snap.product_id}:${snap.plan_id}`)) continue;
+		planIds.push(snap.plan_id);
+	}
+	return planIds;
+}

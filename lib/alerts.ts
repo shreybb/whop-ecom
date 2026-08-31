@@ -102,7 +102,11 @@ export async function sendWaitlistAlert(
 		}
 		if (push.sent > 0 && push.failed === 0) {
 			pushSent += push.sent;
-			for (const userId of chunkIds) pushDelivered.add(userId);
+			// Whop notifications API reports per-request success, not per-user delivery.
+			// Only attribute push to specific users when correlation is unambiguous.
+			if (chunkIds.length === 1 || push.sent === chunkIds.length) {
+				for (const userId of chunkIds) pushDelivered.add(userId);
+			}
 		} else if (push.failed > 0) {
 			pushFailed += push.failed;
 			lastError = push.lastError;

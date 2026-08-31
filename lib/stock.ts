@@ -17,7 +17,10 @@ import {
 } from "@/lib/db/waitlist";
 import { sendWaitlistAlert } from "@/lib/alerts";
 import { buildWaitlistNotifyMessage, sendNotification } from "@/lib/notify";
-import { detectPlanStockTransitions } from "@/lib/stock-transitions";
+import {
+	detectPlanStockTransitions,
+	detectUncachedInStockPlanIds,
+} from "@/lib/stock-transitions";
 import { getWhopSdk } from "@/lib/whop-sdk";
 
 export type { TrackedPlan } from "@/lib/db/types";
@@ -68,6 +71,26 @@ async function fetchLiveSnapshot(companyId: string): Promise<PlanSnapshot[]> {
 	return snapshots;
 }
 
+
+/** First sync while in stock: treat as restock when waitlist subscribers exist. */
+async function augmentFirstSyncRestocks(
+	companyId: string,
+	cached: PlanSnapshot[],
+	live: PlanSnapshot[],
+	restockedPlanIds: string[],
+): Promise<string[]> {
+	const uncached = detectUncachedInStockPlanIds(cached, live);
+	const result = new Set(restockedPlanIds);
+	for (const planId of uncached) {
+		if (result.has(planId)) continue;
+		const subscribed = await countSubscribedForPlan(companyId, planId);
+		if (subscribed === 0) continue;
+		const pending = await countPendingNotifyForPlan(companyId, planId);
+		if (pending > 0 || subscribed > 0) result.add(planId);
+	}
+	return [...result];
+}
+
 export type SyncResult = {
 	plans: TrackedPlan[];
 	restockedPlanIds: string[];
@@ -81,12 +104,21 @@ export async function syncCompanyStock(
 ): Promise<SyncResult> {
 	const cached = await getTrackedPlans(companyId);
 	const newestSync = cached.reduce((max, p) => Math.max(max, new Date(p.last_synced_at).getTime()), 0);
-	if (!options.force && cached.length > 0 && Date.now() - newestSync < SYNC_THROTTLE_MS) {
-		return { plans: cached, restockedPlanIds: [], soldOutPlanIds: [] };
-	}
+	const throttled =
+		!options.force && cached.length > 0 && Date.now() - newestSync < SYNC_THROTTLE_MS;
 	const live = await fetchLiveSnapshot(companyId);
 	const liveKeys = new Set(live.map((s) => `${s.product_id}:${s.plan_id}`));
-	const { restockedPlanIds, soldOutPlanIds } = detectPlanStockTransitions(cached, live);
+	const transitions = detectPlanStockTransitions(cached, live);
+	const restockedPlanIds = await augmentFirstSyncRestocks(
+		companyId,
+		cached,
+		live,
+		transitions.restockedPlanIds,
+	);
+	const { soldOutPlanIds } = transitions;
+	if (throttled && restockedPlanIds.length === 0 && soldOutPlanIds.length === 0) {
+		return { plans: cached, restockedPlanIds: [], soldOutPlanIds: [] };
+	}
 	await upsertTrackedPlans(companyId, live);
 	const deleted = await deleteStaleTrackedPlans(companyId, liveKeys);
 	if (deleted > 0) console.info(`[stock] removed ${deleted} stale plan rows for ${companyId}`);
@@ -96,6 +128,7 @@ export async function syncCompanyStock(
 	for (const planId of restockedPlanIds) {
 		const plan = planById.get(planId);
 		if (!plan) continue;
+		await resetPlanNotifyEligibility(companyId, planId);
 		if (company.auto_notify) await notifyWaitlistForPlan(companyId, plan, source);
 	}
 	for (const planId of soldOutPlanIds) {
@@ -117,8 +150,9 @@ export async function notifyWaitlistForPlan(
 	source: RestockEvent["source"],
 ): Promise<{ notified: number; waiting: number; pendingNotify: number; stockLeft: number | null }> {
 	const waiting = await countSubscribedForPlan(companyId, plan.plan_id);
-	// Sold-out Send update marks last_notified_at; restock auto-alerts should still reach everyone.
-	if (plan.in_stock && source !== "manual") {
+	// Manual in-stock alert (not via restock transition) still needs eligibility reset
+	// after a sold-out Send update claimed subscribers for that cycle.
+	if (plan.in_stock && source === "manual") {
 		await resetPlanNotifyEligibility(companyId, plan.plan_id);
 	}
 	const pendingNotify = await countPendingNotifyForPlan(companyId, plan.plan_id);
