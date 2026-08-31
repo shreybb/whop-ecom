@@ -264,6 +264,79 @@ describe("notifyWaitlistForPlan delivery rollback", () => {
 	});
 });
 
+describe("notifyWaitlistForPlan auto restock", () => {
+	beforeEach(() => {
+		vi.mocked(getSupabase).mockReset();
+		vi.mocked(sendWaitlistAlert).mockReset();
+	});
+
+	it("notifies subscribers who already received a sold-out Send update", async () => {
+		const mock = createMockSupabase({
+			waitlist_entries: [
+				{
+					id: "w1",
+					company_id: COMPANY_A,
+					product_id: "prod_1",
+					plan_id: "plan_s",
+					experience_id: "exp_1",
+					whop_user_id: "user_1",
+					username: "buyer1",
+					email: "buyer@example.com",
+					status: "subscribed",
+					restock_event_id: "restock_old",
+					last_notified_at: "2026-01-01T00:00:00.000Z",
+				},
+			],
+			restock_events: [],
+		});
+		vi.mocked(getSupabase).mockReturnValue(mock.client as never);
+		vi.mocked(sendWaitlistAlert).mockResolvedValue({
+			pushSent: 1,
+			pushFailed: 0,
+			pushSkipped: false,
+			emailsSent: 1,
+			emailsFailed: 0,
+			emailsSkipped: false,
+			deliveredUserIds: ["user_1"],
+		});
+
+		const { notifyWaitlistForPlan } = await import("@/lib/stock");
+		const result = await notifyWaitlistForPlan(
+			COMPANY_A,
+			{
+				company_id: COMPANY_A,
+				product_id: "prod_1",
+				plan_id: "plan_s",
+				title: "F1 Jacket",
+				plan_title: "Medium",
+				route: "f1-jacket",
+				currency: "usd",
+				price: 120,
+				purchase_url: "https://whop.com/checkout/plan_s",
+				image_url: null,
+				visibility: "visible",
+				in_stock: true,
+				stock_left: 1,
+				unlimited: false,
+				last_synced_at: new Date().toISOString(),
+			},
+			"webhook",
+		);
+
+		expect(result.notified).toBe(1);
+		expect(sendWaitlistAlert).toHaveBeenCalledWith(
+			expect.objectContaining({
+				recipients: [
+					expect.objectContaining({
+						userId: "user_1",
+						email: "buyer@example.com",
+					}),
+				],
+			}),
+		);
+	});
+});
+
 
 describe("tenant scope on db helpers", () => {
 	beforeEach(() => {

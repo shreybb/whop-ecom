@@ -4,6 +4,8 @@ import type { EmailMessage } from "@/lib/email";
 export type WaitlistEmailRecipient = {
 	userId: string;
 	username?: string | null;
+	/** Stored at join time when Whop member email is unavailable. */
+	email?: string | null;
 };
 
 export type WaitlistEmailContent = {

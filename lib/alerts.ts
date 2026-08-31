@@ -56,12 +56,18 @@ function buildEmailBodies(
 	const messages: { userId: string; message: ReturnType<typeof buildWaitlistEmailMessage> }[] = [];
 	for (const recipient of alert.recipients) {
 		const profile = profiles.get(recipient.userId);
-		if (!profile) continue;
+		const email = profile?.email ?? recipient.email?.trim() ?? null;
+		if (!email) continue;
 		messages.push({
 			userId: recipient.userId,
 			message: buildWaitlistEmailMessage(
 				emailContent,
-				profile,
+				profile ?? {
+					userId: recipient.userId,
+					email,
+					name: null,
+					username: recipient.username ?? null,
+				},
 				recipient.username,
 			),
 		});

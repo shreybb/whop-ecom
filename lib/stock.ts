@@ -117,6 +117,10 @@ export async function notifyWaitlistForPlan(
 	source: RestockEvent["source"],
 ): Promise<{ notified: number; waiting: number; pendingNotify: number; stockLeft: number | null }> {
 	const waiting = await countSubscribedForPlan(companyId, plan.plan_id);
+	// Sold-out Send update marks last_notified_at; restock auto-alerts should still reach everyone.
+	if (plan.in_stock && source !== "manual") {
+		await resetPlanNotifyEligibility(companyId, plan.plan_id);
+	}
 	const pendingNotify = await countPendingNotifyForPlan(companyId, plan.plan_id);
 	const stockLeft = plan.unlimited ? null : plan.stock_left;
 	if (pendingNotify === 0) return { notified: 0, waiting, pendingNotify, stockLeft };
@@ -147,6 +151,7 @@ export async function notifyWaitlistForPlan(
 			recipients: group.map((e) => ({
 				userId: e.whop_user_id,
 				username: e.username,
+				email: e.email,
 			})),
 			title: defaults.title,
 			content: defaults.content,
