@@ -81,7 +81,14 @@ function csvEscape(value: string) {
 
 export async function exportWaitlistCsvAction(
 	companyId: string,
-): Promise<ActionResult<{ csv: string; filename: string }>> {
+): Promise<
+	ActionResult<{
+		csv: string;
+		filename: string;
+		rowCount: number;
+		emailCount: number;
+	}>
+> {
 	try {
 		await requireCompanyAdmin(companyId);
 
@@ -104,8 +111,11 @@ export async function exportWaitlistCsvAction(
 			]),
 		);
 
+		const entries = entriesResult.data ?? [];
+		const emailCount = entries.filter((entry) => Boolean(entry.email)).length;
+
 		const header = "username,email,plan,joined_at";
-		const rows = (entriesResult.data ?? []).map((entry) => {
+		const rows = entries.map((entry) => {
 			const username = entry.username ?? "";
 			const email = entry.email ?? "";
 			const plan =
@@ -118,7 +128,12 @@ export async function exportWaitlistCsvAction(
 
 		const csv = [header, ...rows].join("\n");
 		const date = new Date().toISOString().slice(0, 10);
-		return actionOk({ csv, filename: `restocked-waitlist-${date}.csv` });
+		return actionOk({
+			csv,
+			filename: `restocked-waitlist-${date}.csv`,
+			rowCount: entries.length,
+			emailCount,
+		});
 	} catch {
 		return actionErr("Could not export waitlist. Please try again.");
 	}

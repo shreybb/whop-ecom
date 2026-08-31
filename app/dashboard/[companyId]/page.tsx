@@ -9,6 +9,7 @@ import {
 import { syncCompanyStock } from "@/lib/stock";
 import { getWhopSdk } from "@/lib/whop-sdk";
 import { ActivityTime } from "./activity-time";
+import { AlertTypesCallout } from "./alert-types-callout";
 import { AutoNotifyToggle, SyncButton } from "./controls";
 import { CopyDropsLink } from "./copy-drops-link";
 import { ExportWaitlistButton } from "./export-waitlist-button";
@@ -132,20 +133,24 @@ export default async function DashboardPage({
 			<section className="flex flex-col gap-3">
 				<div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
 					<h2 className="text-5 font-semibold shrink-0">Plans</h2>
-					{dropsLink ? (
-						<div className="flex min-w-0 flex-col gap-1 lg:max-w-md lg:items-end">
-							<CopyDropsLink
-								url={dropsLink.url}
-								label="Copy Drops link"
-								size="2"
-							/>
-							<p className="text-1 text-gray-9 text-pretty lg:text-right">
-								Share on Discord or IG when something sells out — fans land on
-								your {dropsLink.experienceName} tab.
-							</p>
-						</div>
-					) : null}
+					<div className="flex min-w-0 flex-col gap-3 lg:items-end">
+						<ExportWaitlistButton companyId={companyId} />
+						{dropsLink ? (
+							<div className="flex min-w-0 flex-col gap-1 lg:items-end">
+								<CopyDropsLink
+									url={dropsLink.url}
+									label="Copy Drops link"
+									size="2"
+								/>
+								<p className="text-1 text-gray-9 text-pretty lg:text-right">
+									Share on Discord or IG when something sells out — fans land on
+									your {dropsLink.experienceName} tab.
+								</p>
+							</div>
+						) : null}
+					</div>
 				</div>
+				<AlertTypesCallout />
 				{tableRows.length === 0 ? (
 					<p className="rounded-xl border border-gray-a4 bg-gray-a2 p-6 text-center text-3 text-gray-10">
 						No plans found. Publish a product with at least one priced plan
@@ -157,10 +162,7 @@ export default async function DashboardPage({
 			</section>
 
 			<section className="flex flex-col gap-2">
-				<div className="flex flex-wrap items-center justify-between gap-2">
-					<h2 className="text-5 font-semibold">Recent activity</h2>
-					<ExportWaitlistButton companyId={companyId} />
-				</div>
+				<h2 className="text-5 font-semibold">Recent activity</h2>
 				{activity.length === 0 ? (
 					<p className="rounded-xl border border-gray-a4 bg-gray-a2 p-6 text-center text-3 text-gray-10">
 						No activity yet. When customers join waitlists, restocks are

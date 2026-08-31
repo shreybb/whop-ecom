@@ -66,7 +66,7 @@ export function PlanTable({
 						<th className="px-4 py-3 font-medium">Price</th>
 						<th className="px-4 py-3 font-medium">Stock</th>
 						<th className="px-4 py-3 font-medium">On waitlist</th>
-						<th className="px-4 py-3 font-medium">Needs alert</th>
+						<th className="px-4 py-3 font-medium">Awaiting ping</th>
 						<th className="px-4 py-3 font-medium">Alerted (7d)</th>
 						<th className="px-4 py-3 font-medium">Recovered</th>
 						<th className="w-28 px-4 py-3 font-medium text-right">Action</th>
@@ -169,9 +169,11 @@ function PlanTableRow({
 						className="whitespace-nowrap"
 						loading={isPending}
 						title={
-							stampede
-								? `Everyone on the waitlist (${row.waiting}) will be pinged. Only ${row.stockLeft} in stock — some may miss out.`
-								: undefined
+							row.inStock
+								? stampede
+									? `Restock alert — pings all ${row.waiting} waiting; only ${row.stockLeft} in stock, so some may miss out`
+									: `Restock alert — notifies ${row.pendingNotify} waiting fan${row.pendingNotify === 1 ? "" : "s"} with a checkout link`
+								: `Send update — still sold out; pings ${row.pendingNotify} waiting fan${row.pendingNotify === 1 ? "" : "s"} with a status message (no buy link)`
 						}
 						onClick={() =>
 							startTransition(async () => {
@@ -199,8 +201,8 @@ function PlanTableRow({
 						}
 					>
 						{row.inStock
-							? `Notify (${row.pendingNotify})`
-							: `Alert (${row.pendingNotify})`}
+							? `Restock alert (${row.pendingNotify})`
+							: `Send update (${row.pendingNotify})`}
 					</Button>
 				)}
 			</td>
