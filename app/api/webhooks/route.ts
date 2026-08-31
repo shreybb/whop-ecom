@@ -11,6 +11,7 @@ import {
 import { syncCompanyStock } from "@/lib/stock";
 import { resolveCatalogCompanyId } from "@/lib/webhook-catalog";
 import { resolveWebhookWork } from "@/lib/webhook-work";
+import { getWhopWebhookSigningKey } from "@/lib/whop-webhook-key";
 import { getWhopSdk } from "@/lib/whop-sdk";
 
 // The pinned @whop/sdk 0.0.3 types only payment/membership/invoice/entry
@@ -62,11 +63,13 @@ function webhookJson(body: Record<string, unknown>, status = 200) {
 export async function POST(request: NextRequest): Promise<Response> {
 	const requestBodyText = await request.text();
 	const headers = Object.fromEntries(request.headers);
+	console.log("[webhook] POST /api/webhooks");
 
 	let event: AppWebhookEvent;
 	try {
 		event = getWhopSdk().webhooks.unwrap(requestBodyText, {
 			headers,
+			key: getWhopWebhookSigningKey(),
 		}) as unknown as AppWebhookEvent;
 	} catch (err) {
 		console.error("[webhook] signature verification failed", err);

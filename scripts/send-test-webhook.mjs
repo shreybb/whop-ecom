@@ -15,9 +15,8 @@ if (!secret) {
 	process.exit(1);
 }
 
-// Matches lib/whop-sdk.ts: webhookKey = btoa(WHOP_WEBHOOK_SECRET)
-const webhookKey = Buffer.from(secret, "utf8").toString("base64");
-const wh = new Webhook(webhookKey);
+// Whop ws_/whsec_ secrets are passed raw (see docs.whop.com/developer/guides/webhooks).
+const wh = new Webhook(secret);
 
 async function send(label, payload, { sign = true } = {}) {
 	const body = JSON.stringify(payload);
