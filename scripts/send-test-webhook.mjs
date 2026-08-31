@@ -4,6 +4,14 @@ import { Webhook } from "standardwebhooks";
 config({ path: ".env.local" });
 
 const secret = process.env.WHOP_WEBHOOK_SECRET;
+
+function createWhopWebhookVerifier(value) {
+	const trimmed = value.trim();
+	if (trimmed.startsWith("ws_")) {
+		return new Webhook(trimmed, { format: "raw" });
+	}
+	return new Webhook(trimmed);
+}
 const url =
 	process.env.WEBHOOK_TEST_URL ||
 	"https://whop-ecom-beta.vercel.app/api/webhooks";
@@ -15,8 +23,8 @@ if (!secret) {
 	process.exit(1);
 }
 
-// Whop ws_/whsec_ secrets are passed raw (see docs.whop.com/developer/guides/webhooks).
-const wh = new Webhook(secret);
+// ws_ secrets use raw UTF-8 bytes; whsec_ uses Standard Webhooks base64 decoding.
+const wh = createWhopWebhookVerifier(secret);
 
 async function send(label, payload, { sign = true } = {}) {
 	const body = JSON.stringify(payload);

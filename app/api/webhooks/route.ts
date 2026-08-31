@@ -12,7 +12,7 @@ import { syncCompanyStock } from "@/lib/stock";
 import { resolveCatalogCompanyId } from "@/lib/webhook-catalog";
 import { resolveWebhookWork } from "@/lib/webhook-work";
 import { getWhopWebhookSigningKey } from "@/lib/whop-webhook-key";
-import { getWhopSdk } from "@/lib/whop-sdk";
+import { unwrapWhopWebhook } from "@/lib/whop-webhook-verify";
 
 // The pinned @whop/sdk 0.0.3 types only payment/membership/invoice/entry
 // events, but unwrap() verifies the signature and JSON-parses whatever Whop
@@ -67,10 +67,11 @@ export async function POST(request: NextRequest): Promise<Response> {
 
 	let event: AppWebhookEvent;
 	try {
-		event = getWhopSdk().webhooks.unwrap(requestBodyText, {
+		event = unwrapWhopWebhook<AppWebhookEvent>(
+			requestBodyText,
 			headers,
-			key: getWhopWebhookSigningKey(),
-		}) as unknown as AppWebhookEvent;
+			getWhopWebhookSigningKey(),
+		);
 	} catch (err) {
 		console.error("[webhook] signature verification failed", err);
 		return webhookJson({ ok: false, error: "invalid_signature" }, 400);
