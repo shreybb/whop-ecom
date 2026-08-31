@@ -129,17 +129,17 @@ export default async function DashboardPage({
 				initialBody={company?.notify_body ?? null}
 			/>
 
-			<section className="flex flex-col gap-2">
-				<div className="flex flex-wrap items-center justify-between gap-2">
-					<h2 className="text-5 font-semibold">Plans</h2>
+			<section className="flex flex-col gap-3">
+				<div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+					<h2 className="text-5 font-semibold shrink-0">Plans</h2>
 					{dropsLink ? (
-						<div className="flex flex-col items-end gap-0.5">
+						<div className="flex min-w-0 flex-col gap-1 lg:max-w-md lg:items-end">
 							<CopyDropsLink
 								url={dropsLink.url}
 								label="Copy Drops link"
 								size="2"
 							/>
-							<p className="text-1 text-gray-9">
+							<p className="text-1 text-gray-9 text-pretty lg:text-right">
 								Share on Discord or IG when something sells out — fans land on
 								your {dropsLink.experienceName} tab.
 							</p>
@@ -152,11 +152,7 @@ export default async function DashboardPage({
 						on your whop and hit &ldquo;Sync stock&rdquo;.
 					</p>
 				) : (
-					<PlanTable
-						companyId={companyId}
-						rows={tableRows}
-						dropsShareUrl={dropsLink?.url ?? null}
-					/>
+					<PlanTable companyId={companyId} rows={tableRows} />
 				)}
 			</section>
 

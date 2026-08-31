@@ -4,7 +4,6 @@ import { Button } from "@whop/react/components";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { notifyWaitlistAction } from "@/app/actions";
-import { CopyDropsLink } from "./copy-drops-link";
 
 export type PlanRow = {
 	planId: string;
@@ -50,11 +49,9 @@ function planLabel(row: PlanRow) {
 export function PlanTable({
 	companyId,
 	rows,
-	dropsShareUrl,
 }: {
 	companyId: string;
 	rows: PlanRow[];
-	dropsShareUrl: string | null;
 }) {
 	if (rows.length === 0) {
 		return null;
@@ -72,7 +69,7 @@ export function PlanTable({
 						<th className="px-4 py-3 font-medium">Needs alert</th>
 						<th className="px-4 py-3 font-medium">Alerted (7d)</th>
 						<th className="px-4 py-3 font-medium">Recovered</th>
-						<th className="px-4 py-3" />
+						<th className="w-28 px-4 py-3 font-medium text-right">Action</th>
 					</tr>
 				</thead>
 				<tbody className="divide-y divide-gray-a3">
@@ -81,7 +78,6 @@ export function PlanTable({
 							key={row.planId}
 							companyId={companyId}
 							row={row}
-							dropsShareUrl={dropsShareUrl}
 						/>
 					))}
 				</tbody>
@@ -93,11 +89,9 @@ export function PlanTable({
 function PlanTableRow({
 	companyId,
 	row,
-	dropsShareUrl,
 }: {
 	companyId: string;
 	row: PlanRow;
-	dropsShareUrl: string | null;
 }) {
 	const router = useRouter();
 	const [isPending, startTransition] = useTransition();
@@ -126,22 +120,16 @@ function PlanTableRow({
 						</div>
 					)}
 					<div className="min-w-0">
-						<div className="truncate font-medium">{planLabel(row)}</div>
-						{stampede && (
-							<p className="mt-0.5 text-1 text-amber-11">
-								{row.waiting} on the waitlist but only {row.stockLeft} in
-								stock — Notify blasts everyone on the list; stock may run out
-								before they all check out.
+						<div className="font-medium leading-snug">{planLabel(row)}</div>
+						{stampede ? (
+							<p
+								className="mt-1 text-1 leading-snug text-amber-11"
+								title={`${row.waiting} on the waitlist but only ${row.stockLeft} in stock`}
+							>
+								{row.waiting} waiting · {row.stockLeft} in stock — notify pings
+								everyone; some may miss out.
 							</p>
-						)}
-						{!row.inStock && (
-							<div className="mt-1">
-								<CopyDropsLink
-									url={dropsShareUrl}
-									label="Copy Drops link"
-								/>
-							</div>
-						)}
+						) : null}
 					</div>
 				</div>
 			</td>
@@ -163,10 +151,10 @@ function PlanTableRow({
 			<td className="px-4 py-3 text-green-11">
 				${row.recoveredUsd.toFixed(2)}
 			</td>
-			<td className="px-4 py-3 text-right">
+			<td className="px-4 py-3 text-right whitespace-nowrap">
 				{feedback ? (
 					<span
-						className={`text-2 ${feedback.startsWith("Notified") || feedback.startsWith("All notified") ? "text-green-11" : "text-red-11"}`}
+						className={`inline-block max-w-32 text-left text-2 leading-snug ${feedback.startsWith("Notified") || feedback.startsWith("All notified") ? "text-green-11" : "text-red-11"}`}
 					>
 						{feedback}
 					</span>
@@ -178,6 +166,7 @@ function PlanTableRow({
 					<Button
 						variant="classic"
 						size="1"
+						className="whitespace-nowrap"
 						loading={isPending}
 						title={
 							stampede
@@ -210,8 +199,8 @@ function PlanTableRow({
 						}
 					>
 						{row.inStock
-							? `Notify waitlist (${row.pendingNotify})`
-							: `Send update (${row.pendingNotify})`}
+							? `Notify (${row.pendingNotify})`
+							: `Alert (${row.pendingNotify})`}
 					</Button>
 				)}
 			</td>
